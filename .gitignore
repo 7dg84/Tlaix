@@ -1,0 +1,7 @@
+./backend/db.sqlite3
+./backend/__pycache__/
+./backend/migrations/__pycache__/
+./backend/migrations/*.pyc
+./backend/staticfiles/
+./backend/media/
+./backend/.env
