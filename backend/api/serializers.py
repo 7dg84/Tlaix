@@ -10,7 +10,7 @@ class TableSerializer(serializers.ModelSerializer):
 class ColumnSerializer(serializers.ModelSerializer):
     class Meta:
         model = Column
-        fields = ['id', 'table_id', 'name', 'type', 'options', 'order']
+        fields = ['id', 'table_id', 'tab_id', 'name', 'type', 'options', 'order']
         read_only_fields = ['id']
 
 class RowSerializer(serializers.ModelSerializer):
