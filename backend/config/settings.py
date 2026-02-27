@@ -56,7 +56,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'db1.sqlite3',
     }
 }
 
@@ -75,3 +75,19 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8080",
 ]
+
+# HTTPOnly Cookie Configuration
+CORS_ALLOW_CREDENTIALS = True
+
+# Session configuration for HTTPOnly cookies
+SESSION_COOKIE_AGE = 86400 * 7  # 7 days
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'
+
+# Custom auth token cookie settings
+AUTH_TOKEN_COOKIE_NAME = 'auth_token'
+AUTH_TOKEN_COOKIE_HTTPONLY = True
+AUTH_TOKEN_COOKIE_SECURE = False  # Set to True in production with HTTPS
+AUTH_TOKEN_COOKIE_SAMESITE = 'Lax'
+AUTH_TOKEN_COOKIE_AGE = 86400 * 7  # 7 days

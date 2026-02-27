@@ -11,13 +11,13 @@ class Table(models.Model):
     
     class Meta:
         db_table = 'tables'
-    
+        
     def __str__(self):
         return self.name
 
 class Tab(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
-    table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name='tabs')
+    table = models.ForeignKey(Table, on_delete=models.CASCADE, related_name='tabs')
     name = models.CharField(max_length=100)
     label = models.CharField(max_length=100)
     order = models.IntegerField(default=0)
@@ -36,25 +36,88 @@ class Column(models.Model):
     ]
     
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
-    table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name='columns')
-    tab_id = models.ForeignKey(Tab, on_delete=models.CASCADE, related_name='columns')
+    tab = models.ForeignKey(Tab, on_delete=models.CASCADE, related_name='columns')
     name = models.CharField(max_length=100)
     type = models.CharField(max_length=20, choices=COLUMN_TYPES)
     options = models.JSONField(blank=True, null=True)
     order = models.IntegerField(default=0)
+    is_required = models.BooleanField(default=False)
     
     class Meta:
         db_table = 'columns'
         ordering = ['order']
+    
+    @property
+    def table(self):
+        return self.tab.table
 
 class Row(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
-    table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name='rows')
+    table = models.ForeignKey(Table, on_delete=models.CASCADE, related_name='rows')
     name = models.CharField(max_length=200)
-    data = models.JSONField(default=dict, blank=True, null=False)
+    order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'rows'
+        ordering = ['order']
 
+class CellValue(models.Model):
+    """
+    Almacena el valor de cada celda de forma normalizada.
+    Cada celda es la intersección de una Row y una Column.
+    """
+    id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
+    row = models.ForeignKey(Row, on_delete=models.CASCADE, related_name='cells')
+    column = models.ForeignKey(Column, on_delete=models.CASCADE, related_name='cells')
+    
+    # Campos para diferentes tipos de datos
+    value_text = models.TextField(blank=True, null=True)
+    value_int = models.IntegerField(blank=True, null=True)
+    value_float = models.FloatField(blank=True, null=True)
+    value_bool = models.BooleanField(default=False, null=True)
+    value_json = models.JSONField(blank=True, null=True)  # Para selects múltiples u otros
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'cell_values'
+        unique_together = [['row', 'column']]  # Una celda por combinación row-column
+        indexes = [
+            models.Index(fields=['row', 'column']),
+            models.Index(fields=['column']),
+        ]
+    
+    def get_value(self):
+        """Retorna el valor según el tipo de columna"""
+        column_type = self.column.type
+        if column_type == 'text':
+            return self.value_text
+        elif column_type == 'int':
+            return self.value_int
+        elif column_type == 'float':
+            return self.value_float
+        elif column_type == 'checkbox':
+            return self.value_bool
+        elif column_type == 'select':
+            return self.value_json or self.value_text
+        return None
+    
+    def set_value(self, value):
+        """Asigna el valor según el tipo de columna"""
+        column_type = self.column.type
+        if column_type == 'text':
+            self.value_text = str(value) if value is not None else None
+        elif column_type == 'int':
+            self.value_int = int(value) if value is not None else None
+        elif column_type == 'float':
+            self.value_float = float(value) if value is not None else None
+        elif column_type == 'checkbox':
+            self.value_bool = bool(value)
+        elif column_type == 'select':
+            if isinstance(value, (list, dict)):
+                self.value_json = value
+            else:
+                self.value_text = str(value) if value is not None else None
