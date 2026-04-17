@@ -152,3 +152,6 @@ class CellValueSerializer(serializers.ModelSerializer):
         
         instance.save()
         return instance
+    
+class TabViewSerializer(serializers.ModelSerializer):
+    pass

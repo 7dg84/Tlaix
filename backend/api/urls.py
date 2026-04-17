@@ -23,7 +23,10 @@ urlpatterns = [
          TabViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('tables/<str:table_id>/tabs/<str:pk>/',
          TabViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})),
-    path('tables/<str:table_id>/<str:column_id>/<str:row_id>/',
+#     Vista de tablas en un tab combinando filas y columnas, como una tabla de excel
+#     path('tables/tabview/<str:table_id>/<str:tab_id>/'
+#          ),
+    path('tables/cell/<str:table_id>/<str:column_id>/<str:row_id>/',
          CellValueViewSet.as_view({'get': 'retrieve', 'post': 'create', 'put': 'update', 'delete': 'destroy'})),
 
     path('', include(router.urls)),

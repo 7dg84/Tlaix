@@ -251,12 +251,12 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validar que existan los objetos relacionados
+        # Validate that related objects exist
         get_object_or_404(Table, id=table_id)
         get_object_or_404(Column, id=column_id)
         get_object_or_404(Row, id=row_id)
 
-        # Filtrar por row y column
+        # Filter by row and column
         queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -266,12 +266,12 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validar que existan los objetos relacionados
+        # Validate that related objects exist
         get_object_or_404(Table, id=table_id)
         get_object_or_404(Column, id=column_id)
         get_object_or_404(Row, id=row_id)
 
-        # Filtrar por row y column
+        # Filter by row and column
         queryset = get_object_or_404(CellValue.objects.filter(row_id=row_id, column_id=column_id))
         serializer = self.get_serializer(queryset)
         return Response(serializer.data)
@@ -283,12 +283,12 @@ class CellValueViewSet(viewsets.ModelViewSet):
         row = self.kwargs.get('row_id')
         print(self.kwargs.get('table_id'), self.kwargs.get('column_id'), self.kwargs.get('row_id'))
         
-        # Validate is the ids exist
+        #  Validate that related objects exist
         get_object_or_404(Table, id=table)
         get_object_or_404(Column, id=column)
         get_object_or_404(Row, id=row)
         
-        # Crea una copia mutable de los datos del request
+        # Create a mutable copy of request data and add the related IDs
         data = request.data.copy()
         data['table_id'] = table
         data['column_id'] = column
@@ -304,12 +304,12 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validar que existan los objetos relacionados
+        # Validate that related objects exist
         get_object_or_404(Table, id=table_id)
         get_object_or_404(Column, id=column_id)
         get_object_or_404(Row, id=row_id)
 
-        # Filtrar por row y column
+        # Filter by row and column
         queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
         if not queryset.exists():
             return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
@@ -324,15 +324,59 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validar que existan los objetos relacionados
+        # Validate that related objects exist
         get_object_or_404(Table, id=table_id)
         get_object_or_404(Column, id=column_id)
         get_object_or_404(Row, id=row_id)
 
-        # Filtrar por row y column
+        # Filter by row and column
         queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
         if not queryset.exists():
             return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
         instance = queryset.first()
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+class TabViewViewSet(viewsets.ModelViewSet):
+    serializer_class = TabSerializer
+
+    def get_queryset(self):
+        """
+        Filtra tabs por table_id en la URL.
+        """
+        table_id = self.kwargs.get('table_id')
+        if not table_id:
+            return Tab.objects.all()
+        return Tab.objects.filter(table_id=table_id)
+    
+    def list(self, request, *args, **kwargs):
+        table_id = self.kwargs.get('table_id')
+        tab_id = self.kwargs.get('tab_id')
+
+        # Validate that related objects exist
+        get_object_or_404(Table, id=table_id)
+        get_object_or_404(Tab, id=tab_id)
+
+        # Filter by table and tab
+        queryset = Tab.objects.filter(table_id=table_id, id=tab_id)
+        columns_queryset = Column.objects.filter(tab_id=tab_id)
+        rows_queryset = Row.objects.filter(table_id=table_id)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        """
+        Asocia el tab con el table_id de la URL.
+        """
+        table_id = self.kwargs.get('table_id')
+        get_object_or_404(Table, id=table_id)
+
+        data = request.data.copy()
+        data['table_id'] = table_id
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

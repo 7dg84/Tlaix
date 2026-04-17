@@ -3,7 +3,7 @@ import uuid
 
 class Table(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
     icon = models.CharField(max_length=50, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,6 +25,10 @@ class Tab(models.Model):
     class Meta:
         db_table = 'tabs'
         ordering = ['order']
+        unique_together = [['table', 'name']]  # The tab name must be unique within the same table
+        
+    def __str__(self):
+        return self.label
 
 class Column(models.Model):
     COLUMN_TYPES = [
@@ -38,18 +42,22 @@ class Column(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
     tab = models.ForeignKey(Tab, on_delete=models.CASCADE, related_name='columns')
     name = models.CharField(max_length=100)
-    type = models.CharField(max_length=20, choices=COLUMN_TYPES)
-    options = models.JSONField(blank=True, null=True)
+    type = models.CharField(max_length=20, choices=COLUMN_TYPES, blank=False, null=False)
+    options = models.JSONField(blank=True, null=True) # TODO: paque sirve
     order = models.IntegerField(default=0)
-    is_required = models.BooleanField(default=False)
+    is_required = models.BooleanField(default=False) # TODO: pa que sirve
     
     class Meta:
         db_table = 'columns'
         ordering = ['order']
+        unique_together = [['tab', 'name']]  # The column name must be unique within the same tab
     
     @property
     def table(self):
         return self.tab.table
+    
+    def __str__(self):
+        return self.name
 
 class Row(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
@@ -57,11 +65,14 @@ class Row(models.Model):
     name = models.CharField(max_length=200)
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now=True) # TODO: revisar si es necesario
     
     class Meta:
         db_table = 'rows'
         ordering = ['order']
+        
+    def __str__(self):
+        return self.name
 
 class CellValue(models.Model):
     """

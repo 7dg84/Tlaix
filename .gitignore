@@ -1,4 +1,7 @@
 ./backend/db.sqlite3
+./backend/db1.sqlite3
+./backend/db2.sqlite3
+./backend/db3.sqlite3
 ./backend/__pycache__/
 ./backend/migrations/__pycache__/
 ./backend/migrations/*.pyc
