@@ -81,7 +81,7 @@ def upload_data(request):
 @api_view(['POST'])
 def check(request):
     data = request.data
-    if 'no_control' not in data or 'group' not in data:
+    if 'no_control' not in data:
         return Response({'error': 'Missing required fields'}, status=400)
     
     try:

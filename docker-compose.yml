@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tlaix
+      POSTGRES_USER: tlaix
+      POSTGRES_PASSWORD: tlaixpassword
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal_net
+
+  django:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DJANGO_SECRET_KEY: "change-me-in-prod"
+      POSTGRES_HOST: db
+      POSTGRES_DB: tlaix
+      POSTGRES_USER: tlaix
+      POSTGRES_PASSWORD: tlaixpassword
+      DJANGO_ALLOWED_HOSTS: "*"
+    depends_on:
+      - db
+    networks:
+      - internal_net
+
+  react:
+    build:
+      context: ./frontend/tabula-dash-flow
+    networks:
+      - internal_net
+    depends_on:
+      - django
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    environment:
+      DB_SQLITE_FILE: "/data/database.sqlite"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - internal_net
+
+volumes:
+  pgdata:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  internal_net:
+    driver: bridge
