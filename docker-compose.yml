@@ -25,6 +25,7 @@ services:
       POSTGRES_USER: tlaix
       POSTGRES_PASSWORD: tlaixpassword
       DJANGO_ALLOWED_HOSTS: "*"
+      CORS_ALLOWED_ORIGIN: "http://nginx-proxy-manager:80"
     depends_on:
       - db
     networks:
@@ -52,6 +53,17 @@ services:
       - npm_letsencrypt:/etc/letsencrypt
     networks:
       - internal_net
+
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: "your-tunnel-token-here"
+    networks:
+      - internal_net
+    depends_on:
+      - django
 
 volumes:
   pgdata:

@@ -3,7 +3,7 @@ from rest_framework.decorators import action, api_view, authentication_classes, 
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission
-from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.models import Token as AuthToken
 from .models import Table, Column, Row, Tab, CellValue
 from .serializers import UserSerializer, TableSerializer, ColumnSerializer, RowSerializer, TabSerializer, CellValueSerializer
 from django.shortcuts import get_object_or_404
@@ -47,7 +47,7 @@ def login(request):
         return Response({'error': 'Invalid password'}, status=status.HTTP_401_UNAUTHORIZED)
 
     # Generar o recuperar el token de autenticación
-    token, created = Token.objects.get_or_create(user=user)
+    token, created = AuthToken.objects.get_or_create(user=user)
     serilized = UserSerializer(user)
 
     response = Response({'user': serilized.data}, status=status.HTTP_200_OK)
@@ -79,7 +79,7 @@ def register(request):
         user.set_password(request.data['password'])
         user.save()
 
-        token = Token.objects.create(user=user)
+        token = AuthToken.objects.create(user=user)
         return Response({'token': token.key}, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -113,10 +113,33 @@ def logout(request):
 
     return response
 
+# Cliets
+@api_view(['POST'])
+def login_clients(request):
+    # Lógica de autenticación
+    # Campos requeridos: email, password
+    if 'email' not in request.data or 'password' not in request.data:
+        return Response({'error': 'Email and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+    # buscar el usuario por email
+    user = get_object_or_404(User, email=request.data['email'])
+
+    # Validar la contraseña
+    if not user.check_password(request.data['password']):
+        return Response({'error': 'Invalid password'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Generar o recuperar el token de autenticación
+    token, created = AuthToken.objects.get_or_create(user=user)
+    serilized = UserSerializer(user)
+
+    response = Response({'token': token.key}, status=status.HTTP_200_OK)
+
+
+    return response
+
 
 class TableViewSet(viewsets.ModelViewSet):
     queryset = Table.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = TableSerializer
 
     @action(detail=True, methods=['get'])
@@ -143,6 +166,7 @@ class TableViewSet(viewsets.ModelViewSet):
 
 class ColumnViewSet(viewsets.ModelViewSet):
     # queryset = Column.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = ColumnSerializer
 
     def get_queryset(self):
@@ -195,6 +219,7 @@ class ColumnViewSet(viewsets.ModelViewSet):
 
 class RowViewSet(viewsets.ModelViewSet):
     # queryset = Row.objects.all()
+    permission_classes = [IsAuthenticated]
     serializer_class = RowSerializer
 
     def get_queryset(self):
@@ -234,6 +259,7 @@ class RowViewSet(viewsets.ModelViewSet):
 
 
 class TabViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = TabSerializer
 
     def get_queryset(self):
@@ -263,8 +289,9 @@ class TabViewSet(viewsets.ModelViewSet):
 
 
 class CellValueViewSet(viewsets.ModelViewSet):
-    serializer_class = CellValueSerializer
     queryset = CellValue.objects.all()
+    serializer_class = CellValueSerializer
+    permission_classes = [IsAuthenticated]
 
     def list(self, request, *args, **kwargs):
         table_id = self.kwargs.get('table_id')
@@ -362,6 +389,7 @@ class CellValueViewSet(viewsets.ModelViewSet):
 
 
 class TabViewViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = TabSerializer
 
     def get_queryset(self):
@@ -410,6 +438,8 @@ class TabViewViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(['get'])
+@authentication_classes([CookieTokenAuthentication])
+@permission_classes([IsAuthenticated])
 def tab_view(request, table_id, tab_id):
     # Validate that related objects exist
     get_object_or_404(Table, id=table_id)

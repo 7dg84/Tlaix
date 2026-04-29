@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'rest_framework.authtoken',
     'api',
     'students',
 ]
@@ -95,9 +96,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite dev server
-    "http://localhost:3000",
-    "http://localhost:8080",
+    os.environ.get('CORS_ALLOWED_ORIGIN', 'http://localhost:3000'),
 ]
 
 # HTTPOnly Cookie Configuration
