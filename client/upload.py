@@ -5,6 +5,7 @@ import pandas as pd
 from api import Api
 import qrcode
 from tkinter import filedialog
+import json
 
 
 def gen_qr(no_control):
@@ -29,18 +30,17 @@ def main():
         return
     df = pd.read_excel(file)
     for index, row in df.iterrows():
-        student_data = {
-            "no_control": row['Número de control'],
+        student_data = json.loads(json.dumps({
+            "no_control": str(row['Número de control']),
             "name": row['Paterno']+" "+row['Materno']+" "+row['Nombre'],
             "plantel": row['Plantel'],
-            "carrera": row['Especialidad'],
-            "turno": row['Turno'],
-            "group": row['Grupo']
-        }
+            "carrera": row['Especialidad'].upper(),
+            "turno": row['Turno'].upper(),
+            "group": str(row['Grupo'])
+        }))
         gen_qr(student_data['no_control'])
-        api = Api("http://127.0.0.1:8000")
-        api.upload_student(student_data)
-        print(student_data)
+        api = Api("http://tlaix.smart-food.cc", jwt_token="9664cc9be8a916131ee94e8bbb3631ae1cd6071d")
+        print(api.upload_student(student_data), student_data)
 
 
 if __name__ == "__main__":

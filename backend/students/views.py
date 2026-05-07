@@ -16,19 +16,19 @@ from api.models import Table, Row, Column, CellValue, Tab
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     # Agregar permisos, solo admin puede ver
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
     
 class RelationViewSet(viewsets.ModelViewSet):
     queryset = Relation.objects.all()
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     serializer_class = RelationSerializer
 
 
 # This view allows to upload the data of students. no_control, group, name, plantel, carrera, turno,
 # must be provided
 
-# @permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @csrf_exempt
 @api_view(['POST'])
 def upload_data(request):
@@ -41,7 +41,9 @@ def upload_data(request):
     if Student.objects.filter(no_control=data['no_control']).exists():
         return Response({'error': 'no_control already exists'}, status=400)
     
-    # validate no_control format, must be 14 integers
+    # validate no_control format, must be string with 14 integers
+    if type(data['no_control']) != str:
+        return Response({'error': 'Invalid no_control format'}, status=400)
     if len(data['no_control']) != 14 or not data['no_control'].isdigit():
         return Response({'error': 'Invalid no_control format'}, status=400)
     
@@ -52,6 +54,10 @@ def upload_data(request):
     # validate turno, must be one of the options
     if data['turno'] not in ['MATUTINO', 'VESPERTINO']:
         return Response({'error': 'Invalid turno'}, status=400)
+    
+    # validate group, must be a string
+    if type(data['group']) != str:
+        return Response({'error': 'Invalid group format'}, status=400)
     
 
     # Create student
@@ -77,6 +83,7 @@ def upload_data(request):
 # and if is in the group, it verifies if the row of today exists, if it exists, 
 # it checks the value of the cell of today, if not, it creates the row and 
 # checks the cellvalue as true.
+@permission_classes([IsAuthenticated])
 @csrf_exempt
 @api_view(['POST'])
 def check(request):

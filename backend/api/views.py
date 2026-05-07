@@ -93,7 +93,7 @@ def register(request):
 def user(request):
     serilized = UserSerializer(request.user)
     return Response(serilized.data, status=status.HTTP_200_OK)
-
+    
 # Logout
 
 
@@ -438,7 +438,7 @@ class TabViewViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(['get'])
-@authentication_classes([CookieTokenAuthentication])
+@authentication_classes([CookieTokenAuthentication, TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def tab_view(request, table_id, tab_id):
     # Validate that related objects exist

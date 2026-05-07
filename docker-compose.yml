@@ -16,16 +16,19 @@ services:
   django:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     env_file:
       - ./backend/.env.example
     environment:
-      DJANGO_SECRET_KEY: "change-me-in-prod"
-      POSTGRES_HOST: db
-      POSTGRES_DB: tlaix
-      POSTGRES_USER: tlaix
-      POSTGRES_PASSWORD: tlaixpassword
-      DJANGO_ALLOWED_HOSTS: "*"
-      CORS_ALLOWED_ORIGIN: "http://nginx-proxy-manager:80"
+      - DJANGO_SECRET_KEY=cambia_esta_clave_secreta_en_produccion
+      - DJANGO_DEBUG=0
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,nginx,tlaix.smart-food.cc,smart-food.cc
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,https://tlaix.smart-food.cc
+      - DB_NAME=encuesta_db
+      - DB_USER=encuesta_user
+      - DB_PASSWORD=encuesta_pass
+      - DB_HOST=db
+      - DB_PORT=5432
     depends_on:
       - db
     networks:
@@ -59,7 +62,7 @@ services:
     restart: unless-stopped
     command: tunnel run
     environment:
-      TUNNEL_TOKEN: "your-tunnel-token-here"
+      TUNNEL_TOKEN: "eyJhIjoiMjgxYzQ1MTgyNWViZjI2MmI4ZGFlY2VkZDMyZWExODgiLCJ0IjoiMTkyN2Q0MjAtMWU0ZS00NGU4LTgzMzItZTg1YmEwNzYwOTEwIiwicyI6Ik4ySTNaalk0T1RRdE0yRmhZeTAwTkRRMUxUbGpORFV0TTJRM09EY3lOVE5oTXpVdyJ9"
     networks:
       - internal_net
     depends_on:

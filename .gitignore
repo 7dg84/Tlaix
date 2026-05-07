@@ -9,3 +9,4 @@
 ./backend/media/
 ./backend/.env
 ./backend/.env.example
+./client/qrs/

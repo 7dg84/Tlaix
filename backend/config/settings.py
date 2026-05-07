@@ -6,9 +6,32 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'replace-this-with-a-secure-secret-in-production')
 
-DEBUG = 'RENDER' not in os.environ
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
+# ALLOWED_HOSTS: parse comma-separated env var DJANGO_ALLOWED_HOSTS
+_allowed_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+if _allowed_hosts:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
+else:
+    ALLOWED_HOSTS = ['*'] if DEBUG else []
+
+# CORS_ALLOWED_ORIGINS: accept comma-separated 'CORS_ALLOWED_ORIGINS' or single 'CORS_ALLOWED_ORIGIN'
+_cors_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '') or os.environ.get('CORS_ALLOWED_ORIGIN', '')
+if _cors_raw:
+    CORS_ALLOWED_ORIGINS = [o.strip().rstrip('/') for o in _cors_raw.split(',') if o.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ]
+
+# CSRF_TRUSTED_ORIGINS: comma-separated list (must include scheme)
+_csrf_raw = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if _csrf_raw:
+    CSRF_TRUSTED_ORIGINS = [o.strip().rstrip('/') for o in _csrf_raw.split(',') if o.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = []
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -22,6 +45,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'api',
     'students',
+    'personal',
 ]
 
 MIDDLEWARE = [
