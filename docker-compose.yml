@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
     command: tunnel run
     environment:
-      TUNNEL_TOKEN: "eyJhIjoiMjgxYzQ1MTgyNWViZjI2MmI4ZGFlY2VkZDMyZWExODgiLCJ0IjoiMTkyN2Q0MjAtMWU0ZS00NGU4LTgzMzItZTg1YmEwNzYwOTEwIiwicyI6Ik4ySTNaalk0T1RRdE0yRmhZeTAwTkRRMUxUbGpORFV0TTJRM09EY3lOVE5oTXpVdyJ9"
+      TUNNEL_TOKEN: ""
     networks:
       - internal_net
     depends_on:

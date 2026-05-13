@@ -5,7 +5,7 @@ from api.models import Table, Row
 class Personal(models.Model):
     clave_empleado = models.CharField(max_length=8, primary_key=True, unique=True)
     apellido_paterno = models.CharField(max_length=100)
-    apellido_materno = models.CharField(max_length=100, blank=True)
+    apellido_materno = models.CharField(max_length=100)
     nombre = models.CharField(max_length=100)
     plantel = models.CharField(max_length=100)
     fecha_ingreso = models.DateField()
@@ -19,7 +19,7 @@ class Personal(models.Model):
         db_table = 'personal'
 
     def __str__(self):
-        return f"{self.nombre} {self.apellido_paterno}"
+        return f"{self.nombre} {self.apellido_paterno} {self.apellido_materno} ({self.clave_empleado})"
 
 
 class Relation(models.Model):

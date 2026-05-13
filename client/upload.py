@@ -6,6 +6,7 @@ from api import Api
 import qrcode
 from tkinter import filedialog
 import json
+from unidecode import unidecode
 
 
 def gen_qr(no_control):
@@ -34,8 +35,8 @@ def main():
             "no_control": str(row['Número de control']),
             "name": row['Paterno']+" "+row['Materno']+" "+row['Nombre'],
             "plantel": row['Plantel'],
-            "carrera": row['Especialidad'].upper(),
-            "turno": row['Turno'].upper(),
+            "carrera": unidecode(row['Especialidad'].upper()),
+            "turno": unidecode(row['Turno'].upper()),
             "group": str(row['Grupo'])
         }))
         gen_qr(student_data['no_control'])

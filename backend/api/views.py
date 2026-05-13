@@ -140,6 +140,7 @@ def login_clients(request):
 class TableViewSet(viewsets.ModelViewSet):
     queryset = Table.objects.all()
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TableSerializer
 
     @action(detail=True, methods=['get'])
@@ -167,6 +168,7 @@ class TableViewSet(viewsets.ModelViewSet):
 class ColumnViewSet(viewsets.ModelViewSet):
     # queryset = Column.objects.all()
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = ColumnSerializer
 
     def get_queryset(self):
@@ -220,6 +222,7 @@ class ColumnViewSet(viewsets.ModelViewSet):
 class RowViewSet(viewsets.ModelViewSet):
     # queryset = Row.objects.all()
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = RowSerializer
 
     def get_queryset(self):
@@ -260,6 +263,7 @@ class RowViewSet(viewsets.ModelViewSet):
 
 class TabViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TabSerializer
 
     def get_queryset(self):
@@ -292,6 +296,7 @@ class CellValueViewSet(viewsets.ModelViewSet):
     queryset = CellValue.objects.all()
     serializer_class = CellValueSerializer
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
 
     def list(self, request, *args, **kwargs):
         table_id = self.kwargs.get('table_id')
@@ -390,6 +395,7 @@ class CellValueViewSet(viewsets.ModelViewSet):
 
 class TabViewViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TabSerializer
 
     def get_queryset(self):
