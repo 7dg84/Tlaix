@@ -2,7 +2,7 @@ from rest_framework import viewsets
 from .models import Relation, Personal
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import TokenAuthentication
-from rest_framework.decorators import permission_classes, api_view
+from rest_framework.decorators import permission_classes, authentication_classes, api_view
 from .serializers import RelationSerializer, PersonalSerializer
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
@@ -27,6 +27,7 @@ class RelationViewSet(viewsets.ModelViewSet):
 
 
 @permission_classes([IsAuthenticated])
+@authentication_classes([TokenAuthentication])
 @csrf_exempt
 @api_view(['POST'])
 def upload_data(request):
@@ -69,6 +70,7 @@ def upload_data(request):
 
 
 @permission_classes([IsAuthenticated])
+@authentication_classes([TokenAuthentication])
 @csrf_exempt
 @api_view(['POST'])
 def check(request):

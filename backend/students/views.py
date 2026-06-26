@@ -1,7 +1,8 @@
 from rest_framework import viewsets
 from .models import Relation
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.decorators import permission_classes
+from rest_framework.decorators import permission_classes, authentication_classes
+from rest_framework.authentication import TokenAuthentication
 from .serializers import RelationSerializer, StudentSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -17,11 +18,13 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.all()
     # Agregar permisos, solo admin puede ver
     permission_classes = [IsAuthenticated]
+    authentication_classes = [TokenAuthentication]
     serializer_class = StudentSerializer
     
 class RelationViewSet(viewsets.ModelViewSet):
     queryset = Relation.objects.all()
     permission_classes = [IsAuthenticated]
+    authentication_classes = [TokenAuthentication]
     serializer_class = RelationSerializer
 
 
@@ -29,6 +32,7 @@ class RelationViewSet(viewsets.ModelViewSet):
 # must be provided
 
 @permission_classes([IsAuthenticated])
+@authentication_classes([TokenAuthentication])
 @csrf_exempt
 @api_view(['POST'])
 def upload_data(request):
@@ -84,6 +88,7 @@ def upload_data(request):
 # it checks the value of the cell of today, if not, it creates the row and 
 # checks the cellvalue as true.
 @permission_classes([IsAuthenticated])
+@authentication_classes([TokenAuthentication])
 @csrf_exempt
 @api_view(['POST'])
 def check(request):
