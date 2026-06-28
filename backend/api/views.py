@@ -5,10 +5,11 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission
 from rest_framework.authtoken.models import Token as AuthToken
 from .models import Table, Column, Row, Tab, CellValue
-from .serializers import UserSerializer, TableSerializer, ColumnSerializer, RowSerializer, TabSerializer, CellValueSerializer
+from .serializers import UserSerializer, TableSerializer, ColumnSerializer, RowSerializer, TabSerializer, CellValueSerializer, TabViewColumnSerializer, TabViewRowSerializer
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 
 # Custom authentication class to support HTTPOnly cookies
 
@@ -21,7 +22,7 @@ class CookieTokenAuthentication(TokenAuthentication):
 
     def authenticate(self, request):
         # First try to get token from cookie
-        token = request.COOKIES.get('auth_token')
+        token = request.COOKIES.get(settings.AUTH_TOKEN_COOKIE_NAME)
 
         if not token:
             # Fall back to Authorization header
@@ -54,12 +55,12 @@ def login(request):
 
     # Set HTTPOnly cookie
     response.set_cookie(
-        key='auth_token',
+        key=settings.AUTH_TOKEN_COOKIE_NAME,
         value=token.key,
-        httponly=True,
-        secure=False,  # Change to True in production with HTTPS
-        samesite='Lax',
-        max_age=86400 * 7  # 7 days
+        httponly=settings.AUTH_TOKEN_COOKIE_HTTPONLY,
+        secure=settings.AUTH_TOKEN_COOKIE_SECURE,
+        samesite=settings.AUTH_TOKEN_COOKIE_SAMESITE,
+        max_age=settings.AUTH_TOKEN_COOKIE_AGE
     )
 
     return response
@@ -93,7 +94,7 @@ def register(request):
 def user(request):
     serilized = UserSerializer(request.user)
     return Response(serilized.data, status=status.HTTP_200_OK)
-    
+
 # Logout
 
 
@@ -107,13 +108,15 @@ def logout(request):
 
     # Delete HTTPOnly cookie
     response.delete_cookie(
-        key='auth_token',
-        samesite='Lax'
+        key=settings.AUTH_TOKEN_COOKIE_NAME,
+        samesite=settings.AUTH_TOKEN_COOKIE_SAMESITE,
     )
 
     return response
 
 # Cliets
+
+
 @api_view(['POST'])
 def login_clients(request):
     # Lógica de autenticación
@@ -132,7 +135,6 @@ def login_clients(request):
     serilized = UserSerializer(user)
 
     response = Response({'token': token.key}, status=status.HTTP_200_OK)
-
 
     return response
 
@@ -443,40 +445,48 @@ class TabViewViewSet(viewsets.ModelViewSet):
 
 
 @csrf_exempt
-@api_view(['get'])
+@api_view(['GET'])
 @authentication_classes([CookieTokenAuthentication, TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def tab_view(request, table_id, tab_id):
-    # Validate that related objects exist
     get_object_or_404(Table, id=table_id)
-    get_object_or_404(Tab, id=tab_id)
+    tab = get_object_or_404(Tab, id=tab_id, table_id=table_id)
 
-    # Get the tab with its columns and the table with its rows
-    tab = Tab.objects.prefetch_related(
-        'columns').get(id=tab_id, table_id=table_id)
-    table = Table.objects.prefetch_related('rows').get(id=table_id)
-
-    # Build a response combining rows and columns
     columns_qs = tab.columns.all()
+    # Cargamos las filas de la tabla
+    table = Table.objects.prefetch_related('rows').get(id=table_id)
     rows_qs = table.rows.all()
-    columns = ColumnSerializer(columns_qs, many=True).data
-    rows = RowSerializer(rows_qs, many=True).data
 
-    # Build a matrix of cell values: for each row, for each column, get the cell value
-    matrix = []
+    columns = TabViewColumnSerializer(columns_qs, many=True).data
+    rows = TabViewRowSerializer(rows_qs, many=True).data
+
+    # OBTENER TODAS LAS CELDAS EN UNA SOLA CONSULTA
+    col_ids = [c['id'] for c in columns]
+    row_ids = [r['id'] for r in rows]
+
+    # Usamos select_related('column') para evitar consultas N+1 en get_value()
+    cells = CellValue.objects.filter(
+        row_id__in=row_ids,
+        column_id__in=col_ids
+    ).select_related('column')
+
+    # Crear un diccionario de búsqueda rápida en memoria: (row_id, column_id) -> value
+    cells_lookup = {
+        (cell.row_id, cell.column_id): cell.get_value()
+        for cell in cells
+    }
+
+    # Integrar los valores directamente en el diccionario de cada fila
     for r in rows:
-        row_entry = {}
-        for c in columns:
-            cell = CellValue.objects.filter(row_id=r['id'], column_id=c['id']).first()
-            value = cell.get_value() if cell else None
-            row_entry[c['id']] = value
-        matrix.append({r['name']: row_entry})
+        r['cells'] = {
+            c['id']: cells_lookup.get((r['id'], c['id']), None)
+            for c in columns
+        }
 
     response_data = {
         'tab': TabSerializer(tab).data,
-        'columns': [c['name'] for c in columns],
-        'rows': rows,
-        'matrix': matrix,
+        'columns': columns,
+        'rows': rows,  # Ahora cada fila contiene su objeto 'cells' integrado
     }
 
     return Response(response_data, status=status.HTTP_200_OK)

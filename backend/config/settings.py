@@ -123,10 +123,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-CORS_ALLOWED_ORIGINS = [
-    os.environ.get('CORS_ALLOWED_ORIGIN', 'http://localhost:3000'),
-]
-
 # HTTPOnly Cookie Configuration
 CORS_ALLOW_CREDENTIALS = True
 
