@@ -368,7 +368,18 @@ class CellValueViewSet(viewsets.ModelViewSet):
         # Filter by row and column
         queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
         if not queryset.exists():
-            return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
+            # return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
+            # Create the cell value instead
+            # Create a mutable copy of request data and add the related IDs
+            data = request.data.copy()
+            data['table_id'] = table_id
+            data['column_id'] = column_id
+            data['row_id'] = row_id
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
         instance = queryset.first()
         serializer = self.get_serializer(
             instance, data=request.data, partial=True)

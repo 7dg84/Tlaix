@@ -20,7 +20,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     authentication_classes = [TokenAuthentication]
     serializer_class = StudentSerializer
-    
+
+
 class RelationViewSet(viewsets.ModelViewSet):
     queryset = Relation.objects.all()
     permission_classes = [IsAuthenticated]
@@ -44,25 +45,24 @@ def upload_data(request):
     # validate no_control is unique
     if Student.objects.filter(no_control=data['no_control']).exists():
         return Response({'error': 'no_control already exists'}, status=400)
-    
+
     # validate no_control format, must be string with 14 integers
     if type(data['no_control']) != str:
         return Response({'error': 'Invalid no_control format'}, status=400)
     if len(data['no_control']) != 14 or not data['no_control'].isdigit():
         return Response({'error': 'Invalid no_control format'}, status=400)
-    
+
     # validate carrera, must be one of the options
     if data['carrera'] not in ['PROGRAMACION', 'ELECTRONICA', 'DEO']:
         return Response({'error': 'Invalid carrera'}, status=400)
-    
+
     # validate turno, must be one of the options
     if data['turno'] not in ['MATUTINO', 'VESPERTINO']:
         return Response({'error': 'Invalid turno'}, status=400)
-    
+
     # validate group, must be a string
     if type(data['group']) != str:
         return Response({'error': 'Invalid group format'}, status=400)
-    
 
     # Create student
     student = Student.objects.create(
@@ -82,39 +82,44 @@ def upload_data(request):
 
     return Response({'message': 'Student created successfully'}, status=201)
 
-# This view is responsible of checking the student's assistence in the data base, 
-# it receives the no_control, and returns if the student is in the group or not, 
-# and if is in the group, it verifies if the row of today exists, if it exists, 
-# it checks the value of the cell of today, if not, it creates the row and 
+# This view is responsible of checking the student's assistence in the data base,
+# it receives the no_control, and returns if the student is in the group or not,
+# and if is in the group, it verifies if the row of today exists, if it exists,
+# it checks the value of the cell of today, if not, it creates the row and
 # checks the cellvalue as true.
+
+
 @permission_classes([IsAuthenticated])
 @authentication_classes([TokenAuthentication])
 @csrf_exempt
 @api_view(['POST'])
 def check(request):
     data = request.data
-    if 'no_control' not in data:
+    if 'id' not in data:
         return Response({'error': 'Missing required fields'}, status=400)
-    
+
     try:
-        student = Student.objects.get(no_control=data['no_control'])
+        student = Student.objects.get(no_control=data['id'])
     except Student.DoesNotExist:
         return Response({'error': 'Student not found'}, status=404)
-        
+
     try:
         relation = Relation.objects.get(student=student, )
     except Relation.DoesNotExist:
         return Response({'error': 'Student is not in the group'}, status=404)
-    
+
     # Check if the column of today exists, if not, create it
     from datetime import date
     today_str = date.today().isoformat()
-    tab, created = Tab.objects.get_or_create(table=relation.table, name='Asistencia', label='Asistencia')
-    column, created = Column.objects.get_or_create(tab=tab, name=today_str, type='checkbox')
+    tab, created = Tab.objects.get_or_create(
+        table=relation.table, name='Asistencia', label='Asistencia')
+    column, created = Column.objects.get_or_create(
+        tab=tab, name=today_str, type='checkbox')
 
     # Check the cell value of the student for today, if not exists, create it with value true, if exists and is false, update it to true
-    cell_value, created = CellValue.objects.get_or_create(row=relation.row, column=column, defaults={'value_bool': True})
-    
+    cell_value, created = CellValue.objects.get_or_create(
+        row=relation.row, column=column, defaults={'value_bool': True})
+
     if not created and not cell_value.value_bool:
         cell_value.value_bool = True
         cell_value.save()

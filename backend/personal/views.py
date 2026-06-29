@@ -32,7 +32,8 @@ class RelationViewSet(viewsets.ModelViewSet):
 @api_view(['POST'])
 def upload_data(request):
     data = request.data
-    required = ['clave_empleado', 'nombre', 'apellido_paterno', 'apellido_materno', 'plantel', 'correo', 'group']
+    required = ['clave_empleado', 'nombre', 'apellido_paterno',
+                'apellido_materno', 'plantel', 'correo', 'group']
     if not all(key in data for key in required):
         return Response({'error': 'Missing required fields'}, status=400)
 
@@ -41,10 +42,10 @@ def upload_data(request):
 
     if len(data['clave_empleado']) != 8:
         return Response({'error': 'Invalid clave_empleado length'}, status=400)
-    
+
     if data['correo'].count('@') != 1 or '.' not in data['correo'].split('@')[1]:
         return Response({'error': 'Invalid email format'}, status=400)
-    
+
     if search(r'a-zA-Z0-9', data['group']):
         return Response({'error': 'Invalid group name'}, status=400)
 
@@ -62,7 +63,8 @@ def upload_data(request):
         nivel_educativo=data.get('nivel_educativo', None),
     )
 
-    table, created = Table.objects.get_or_create(name=data.get('group', data['group']))
+    table, created = Table.objects.get_or_create(
+        name=data.get('group', data['group']))
     row = Row.objects.create(table=table, name=str(personal))
     Relation.objects.create(personal=personal, table=table, row=row)
 
@@ -75,11 +77,11 @@ def upload_data(request):
 @api_view(['POST'])
 def check(request):
     data = request.data
-    if 'clave_empleado' not in data:
+    if 'id' not in data:
         return Response({'error': 'Missing required fields'}, status=400)
 
     try:
-        personal = Personal.objects.get(clave_empleado=data['clave_empleado'])
+        personal = Personal.objects.get(clave_empleado=data['id'])
     except Personal.DoesNotExist:
         return Response({'error': 'Personal not found'}, status=404)
 
@@ -92,21 +94,27 @@ def check(request):
     timestamp = now.isoformat()
     today_str = now.date().isoformat()
 
-    tab, created = Tab.objects.get_or_create(table=relation.table, name='Asistencia', label='Asistencia')
+    tab, created = Tab.objects.get_or_create(
+        table=relation.table, name='Asistencia', label='Asistencia')
 
     # Attendance checkbox
-    attendance_col, _ = Column.objects.get_or_create(tab=tab, name=f"{today_str}_asistencia", type='checkbox')
+    attendance_col, _ = Column.objects.get_or_create(
+        tab=tab, name=f"{today_str}_asistencia", type='checkbox')
     # Exact time stored as text
-    time_col, _ = Column.objects.get_or_create(tab=tab, name=f"{today_str}_hora", type='text')
+    time_col, _ = Column.objects.get_or_create(
+        tab=tab, name=f"{today_str}_hora", type='text')
     # Lugar stored as checkbox boolean
-    lugar_col, _ = Column.objects.get_or_create(tab=tab, name=f"{today_str}_lugar", type='checkbox')
+    lugar_col, _ = Column.objects.get_or_create(
+        tab=tab, name=f"{today_str}_lugar", type='checkbox')
 
-    cell_att, created = CellValue.objects.get_or_create(row=relation.row, column=attendance_col, defaults={'value_bool': True})
+    cell_att, created = CellValue.objects.get_or_create(
+        row=relation.row, column=attendance_col, defaults={'value_bool': True})
     if not created and not cell_att.value_bool:
         cell_att.value_bool = True
         cell_att.save()
 
-    cell_time, created = CellValue.objects.get_or_create(row=relation.row, column=time_col, defaults={'value_text': timestamp})
+    cell_time, created = CellValue.objects.get_or_create(
+        row=relation.row, column=time_col, defaults={'value_text': timestamp})
     if not created:
         cell_time.value_text = timestamp
         cell_time.save()

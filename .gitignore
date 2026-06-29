@@ -11,3 +11,4 @@
 ./backend/.env.example
 ./client/qrs/
 .env
+.env
