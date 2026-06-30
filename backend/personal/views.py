@@ -104,8 +104,8 @@ def check(request):
     time_col, _ = Column.objects.get_or_create(
         tab=tab, name=f"{today_str}_hora", type='text')
     # Lugar stored as checkbox boolean
-    lugar_col, _ = Column.objects.get_or_create(
-        tab=tab, name=f"{today_str}_lugar", type='checkbox')
+    # lugar_col, _ = Column.objects.get_or_create(
+    #     tab=tab, name=f"{today_str}_lugar", type='checkbox')
 
     cell_att, created = CellValue.objects.get_or_create(
         row=relation.row, column=attendance_col, defaults={'value_bool': True})

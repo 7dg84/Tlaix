@@ -1,6 +1,6 @@
 from django.urls import path, include, re_path
 from rest_framework.routers import DefaultRouter
-from .views import TableViewSet, ColumnViewSet, RowViewSet, TabViewSet, CellValueViewSet, tab_view, login, register, logout, user, login_clients
+from .views import TableViewSet, ColumnViewSet, RowViewSet, TabViewSet, CellValueViewSet, TabView, login, register, logout, user, login_clients
 
 router = DefaultRouter()
 router.register(r'tables', TableViewSet)
@@ -14,7 +14,7 @@ urlpatterns = [
     re_path("clients/login/", login_clients, name="login_clients"),
     # re_path("user/recover/", recover, name="recover"),
     #     Vista de tablas en un tab combinando filas y columnas, como una tabla de excel
-    path('tables/tabview/<str:table_id>/<str:tab_id>/', tab_view, name='tab_view'),
+    path('tables/tabview/<str:table_id>/<str:tab_id>/', TabView.as_view(), name='tab_view'),
     path('tables/<str:table_id>/rows/',
          RowViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('tables/<str:table_id>/rows/<str:pk>/',

@@ -2,7 +2,8 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission, DjangoModelPermissions
+from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token as AuthToken
 from .models import Table, Column, Row, Tab, CellValue
 from .serializers import UserSerializer, TableSerializer, ColumnSerializer, RowSerializer, TabSerializer, CellValueSerializer, TabViewColumnSerializer, TabViewRowSerializer
@@ -141,7 +142,7 @@ def login_clients(request):
 
 class TableViewSet(viewsets.ModelViewSet):
     queryset = Table.objects.all()
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TableSerializer
 
@@ -168,8 +169,8 @@ class TableViewSet(viewsets.ModelViewSet):
 
 
 class ColumnViewSet(viewsets.ModelViewSet):
-    # queryset = Column.objects.all()
-    permission_classes = [IsAuthenticated]
+    queryset = Column.objects.all()
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = ColumnSerializer
 
@@ -222,8 +223,8 @@ class ColumnViewSet(viewsets.ModelViewSet):
 
 
 class RowViewSet(viewsets.ModelViewSet):
-    # queryset = Row.objects.all()
-    permission_classes = [IsAuthenticated]
+    queryset = Row.objects.all()
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = RowSerializer
 
@@ -264,7 +265,8 @@ class RowViewSet(viewsets.ModelViewSet):
 
 
 class TabViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    queryset = Tab.objects.all()
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TabSerializer
 
@@ -297,7 +299,7 @@ class TabViewSet(viewsets.ModelViewSet):
 class CellValueViewSet(viewsets.ModelViewSet):
     queryset = CellValue.objects.all()
     serializer_class = CellValueSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
 
     def list(self, request, *args, **kwargs):
@@ -455,49 +457,50 @@ class TabViewViewSet(viewsets.ModelViewSet):
 # Endpoind to visualize a table in a tab, combining rows and columns, like an excel table
 
 
-@csrf_exempt
-@api_view(['GET'])
-@authentication_classes([CookieTokenAuthentication, TokenAuthentication])
-@permission_classes([IsAuthenticated])
-def tab_view(request, table_id, tab_id):
-    get_object_or_404(Table, id=table_id)
-    tab = get_object_or_404(Tab, id=tab_id, table_id=table_id)
+class TabView(APIView):
+    permission_classes = [IsAuthenticated, DjangoModelPermissions]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
+    queryset = Tab.objects.all()
 
-    columns_qs = tab.columns.all()
-    # Cargamos las filas de la tabla
-    table = Table.objects.prefetch_related('rows').get(id=table_id)
-    rows_qs = table.rows.all()
+    def get(self, request, table_id, tab_id):
+        get_object_or_404(Table, id=table_id)
+        tab = get_object_or_404(Tab, id=tab_id, table_id=table_id)
 
-    columns = TabViewColumnSerializer(columns_qs, many=True).data
-    rows = TabViewRowSerializer(rows_qs, many=True).data
+        columns_qs = tab.columns.all()
+        # Cargamos las filas de la tabla
+        table = Table.objects.prefetch_related('rows').get(id=table_id)
+        rows_qs = table.rows.all()
 
-    # OBTENER TODAS LAS CELDAS EN UNA SOLA CONSULTA
-    col_ids = [c['id'] for c in columns]
-    row_ids = [r['id'] for r in rows]
+        columns = TabViewColumnSerializer(columns_qs, many=True).data
+        rows = TabViewRowSerializer(rows_qs, many=True).data
 
-    # Usamos select_related('column') para evitar consultas N+1 en get_value()
-    cells = CellValue.objects.filter(
-        row_id__in=row_ids,
-        column_id__in=col_ids
-    ).select_related('column')
+        # OBTENER TODAS LAS CELDAS EN UNA SOLA CONSULTA
+        col_ids = [c['id'] for c in columns]
+        row_ids = [r['id'] for r in rows]
 
-    # Crear un diccionario de búsqueda rápida en memoria: (row_id, column_id) -> value
-    cells_lookup = {
-        (cell.row_id, cell.column_id): cell.get_value()
-        for cell in cells
-    }
+        # Usamos select_related('column') para evitar consultas N+1 en get_value()
+        cells = CellValue.objects.filter(
+            row_id__in=row_ids,
+            column_id__in=col_ids
+        ).select_related('column')
 
-    # Integrar los valores directamente en el diccionario de cada fila
-    for r in rows:
-        r['cells'] = {
-            c['id']: cells_lookup.get((r['id'], c['id']), None)
-            for c in columns
+        # Crear un diccionario de búsqueda rápida en memoria: (row_id, column_id) -> value
+        cells_lookup = {
+            (cell.row_id, cell.column_id): cell.get_value()
+            for cell in cells
         }
 
-    response_data = {
-        'tab': TabSerializer(tab).data,
-        'columns': columns,
-        'rows': rows,  # Ahora cada fila contiene su objeto 'cells' integrado
-    }
+        # Integrar los valores directamente en el diccionario de cada fila
+        for r in rows:
+            r['cells'] = {
+                c['id']: cells_lookup.get((r['id'], c['id']), None)
+                for c in columns
+            }
 
-    return Response(response_data, status=status.HTTP_200_OK)
+        response_data = {
+            'tab': TabSerializer(tab).data,
+            'columns': columns,
+            'rows': rows,  # Ahora cada fila contiene su objeto 'cells' integrado
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)

@@ -32,17 +32,37 @@ def main():
     df = pd.read_excel(file)
     print(df.columns)
     for index, row in df.iterrows():
+        fullName: list = row['NOMBRE'].split(' ')
+        pLastName = fullName[0]
+        mLastName = fullName[1]
+        fullName.pop(0)
+        fullName.pop(0)
+        name = ' '.join(fullName)
+    
         data = json.loads(json.dumps({
-            "clave_empleado": str(row['Clave de Empleado:']).zfill(8),
-            "apellido_paterno": row['Apellido Paterno:'],
-            "apellido_materno": row['Apellido Materno:'],
-            "nombre": row['Nombre:'],
-            "plantel": row['Plantel que representará:'],
-            "telefono": row['Teléfono de contacto para agregar a grupo de WhatsApp:'],
-            "correo": row['Dirección de correo electrónico'],
-            "nivel_educativo": row['Puesto Nominal'],
+            "clave_empleado": str(row['CLAVE']).zfill(8),
+            "apellido_paterno": pLastName,
+            "apellido_materno": mLastName,
+            "nombre": name,
+            "plantel": row['Plantel'],
+            "telefono": '',
+            "correo": 'none@mail.com',
+            "nivel_educativo": '',
             "group": "G1"
         }))
+    
+        # data = json.loads(json.dumps({
+        #     "clave_empleado": str(row['CLAVE']).zfill(8),
+        #     "apellido_paterno": row['NOMBRE'].split(' '),
+        #     "apellido_materno": row['Apellido Materno:'],
+        #     "nombre": row['Nombre:'],
+        #     "plantel": row['Plantel que representará:'],
+        #     "telefono": row['Teléfono de contacto para agregar a grupo de WhatsApp:'],
+        #     "correo": row['Dirección de correo electrónico'],
+        #     "nivel_educativo": row['Puesto Nominal'],
+        #     "group": "G1"
+        # }))
+        
         # {
         #     "clave_empleado": "00000001",
         #     "apellido_paterno": "Maquez",
@@ -58,9 +78,9 @@ def main():
         #     "group": "G"
         # }
         print(data)
-        gen_qr(data['clave_empleado'])
+        # gen_qr(data['clave_empleado'])
         api = Api("http://tlaix.smart-food.cc",
-                  jwt_token="9d9f0661-ef92-4483-823a-c2025fdb28f2")
+                  jwt_token="1490f31d590620a38ad1edbe5dc917fe1c443cfe")
         print(api.upload_personal(data), data, end="\n\n")
 
 
