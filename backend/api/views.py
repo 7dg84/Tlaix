@@ -11,10 +11,11 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
+from guardian.shortcuts import get_objects_for_user, assign_perm
 
-# Custom authentication class to support HTTPOnly cookies
-
-
+'''
+Custom authentication class to support HTTPOnly cookies
+'''
 class CookieTokenAuthentication(TokenAuthentication):
     """
     Custom authentication that reads token from HTTPOnly cookies
@@ -31,10 +32,20 @@ class CookieTokenAuthentication(TokenAuthentication):
 
         return self.authenticate_credentials(token)
 
+''''
+Custom permision class to support guardian object permisions
+'''
+class CanModifyStructure(BasePermission):
+    def has_permission(self, request, view):
+        # Primero requiere estar autenticado
+        return request.user.is_authenticated
+    def has_object_permission(self, request, view, obj):
+        # 'obj' es la tabla relacionada
+        # Comprueba si el usuario tiene el permiso de objeto 'modify_table_structure'
+        return request.user.has_perm('api.modify_table_structure', obj)
+
 # Users
 # Login
-
-
 @api_view(['POST'])
 def login(request):
     # Lógica de autenticación
@@ -67,12 +78,11 @@ def login(request):
     return response
 
 # Register
-
-
 @api_view(['POST'])
 def register(request):
     # Lógica de registro aquí
     serializer = UserSerializer(data=request.data)
+    # Validar contraseña si existe y de minimo 8 caracteres
 
     if serializer.is_valid():
         serializer.save()
@@ -87,8 +97,6 @@ def register(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # Authenticated user information
-
-
 @api_view(['GET'])
 @authentication_classes([CookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -97,8 +105,6 @@ def user(request):
     return Response(serilized.data, status=status.HTTP_200_OK)
 
 # Logout
-
-
 @api_view(['POST'])
 @authentication_classes([CookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -116,8 +122,6 @@ def logout(request):
     return response
 
 # Cliets
-
-
 @api_view(['POST'])
 def login_clients(request):
     # Lógica de autenticación
@@ -145,28 +149,27 @@ class TableViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, DjangoModelPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
     serializer_class = TableSerializer
-
-    @action(detail=True, methods=['get'])
-    def columns(self, request, pk=None):
-        table = self.get_object()
-        columns = Column.objects.filter(tab__table=table)
-        serializer = ColumnSerializer(columns, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['get'])
-    def rows(self, request, pk=None):
-        table = self.get_object()
-        rows = table.rows.all()
-        serializer = RowSerializer(rows, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['get'])
-    def tabs(self, request, pk=None):
-        table = self.get_object()
-        tabs = table.tabs.all()
-        serializer = TabSerializer(tabs, many=True)
-        return Response(serializer.data)
-
+    
+    def get_queryset(self):
+        """
+        Este método filtra el queryset basándose en el usuario que hace la solicitud,
+        devuelve solo los Objetos que tiene permiso de visualizar.        
+        """
+        return get_objects_for_user(self.request.user, 'api.view_table')
+    
+    def perform_create(self, serializer):
+        """
+        Este método es para la acción POST (crear).
+        Necesitas asegurarte de que la nueva tabla asocie permisos de completos con el usuario creador.
+        """
+        table = serializer.save()# owner=self.request.user)
+        
+        # El creador recibe todos los privilegios automáticamente sobre este objeto
+        assign_perm('add_table', self.request.user, table)
+        assign_perm('change_table', self.request.user, table)
+        assign_perm('delete_table', self.request.user, table)
+        assign_perm('view_table', self.request.user, table)
+        
 
 class ColumnViewSet(viewsets.ModelViewSet):
     queryset = Column.objects.all()
@@ -272,22 +275,32 @@ class TabViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Filtra tabs por table_id en la URL.
+        Este método filtra el queryset basándose en el table_id de la URL.
         """
+        # Get the table_id from the URL kwargs
         table_id = self.kwargs.get('table_id')
-        if not table_id:
-            return Tab.objects.all()
-        return Tab.objects.filter(table_id=table_id)
+
+        # Make sure the table exists
+        get_object_or_404(Table, id=table_id)
+
+        # Fileter by table_id
+        queryset = Tab.objects.filter(table=table_id)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         """
-        Asocia el tab con el table_id de la URL.
+        Este método es para la acción POST (crear).
+        Necesitas asegurarte de que la nueva pestaña se asocie con el table_id correcto.
         """
+        # Get the table_id from the URL kwargs
         table_id = self.kwargs.get('table_id')
+
+        # Make sure the table exists
         get_object_or_404(Table, id=table_id)
 
+        # Crea una copia mutable de los datos del request
         data = request.data.copy()
-        data['table_id'] = table_id
+        data['table'] = table_id  # Asocia el ID de la tabla a los datos
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)

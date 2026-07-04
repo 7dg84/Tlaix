@@ -4,7 +4,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'replace-this-with-a-secure-secret-in-production')
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY', 'replace-this-with-a-secure-secret-in-production')
 
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
@@ -16,9 +17,11 @@ else:
     ALLOWED_HOSTS = ['*'] if DEBUG else []
 
 # CORS_ALLOWED_ORIGINS: accept comma-separated 'CORS_ALLOWED_ORIGINS' or single 'CORS_ALLOWED_ORIGIN'
-_cors_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '') or os.environ.get('CORS_ALLOWED_ORIGIN', '')
+_cors_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '') or os.environ.get(
+    'CORS_ALLOWED_ORIGIN', '')
 if _cors_raw:
-    CORS_ALLOWED_ORIGINS = [o.strip().rstrip('/') for o in _cors_raw.split(',') if o.strip()]
+    CORS_ALLOWED_ORIGINS = [o.strip().rstrip('/')
+                            for o in _cors_raw.split(',') if o.strip()]
 else:
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:5173",
@@ -29,11 +32,13 @@ else:
 # CSRF_TRUSTED_ORIGINS: comma-separated list (must include scheme)
 _csrf_raw = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
 if _csrf_raw:
-    CSRF_TRUSTED_ORIGINS = [o.strip().rstrip('/') for o in _csrf_raw.split(',') if o.strip()]
+    CSRF_TRUSTED_ORIGINS = [o.strip().rstrip('/')
+                            for o in _csrf_raw.split(',') if o.strip()]
 else:
     CSRF_TRUSTED_ORIGINS = []
 
 INSTALLED_APPS = [
+    'guardian',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -80,26 +85,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-if DEBUG:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db3.sqlite3',
-        }
+DATABASES = {
+    'default': {
+        'ENGINE': os.environ.get('DB_ENGINE', 'django.db.backends.postgresql'),
+        'NAME': os.environ.get('POSTGRES_DB', 'tlaix'),
+        'USER': os.environ.get('POSTGRES_USER', 'tlaix'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'tlaixpassword'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': os.environ.get('DB_ENGINE', 'django.db.backends.postgresql'),
-            'NAME': os.environ.get('POSTGRES_DB', 'tlaix'),
-            'USER': os.environ.get('POSTGRES_USER', 'tlaix'),
-            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'tlaixpassword'),
-            'HOST': os.environ.get('POSTGRES_HOST', 'db'),
-            'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        }
-    }
+}
 
 AUTH_PASSWORD_VALIDATORS = []
+
+AUTHENTICATION_BACKENDS = (
+    'django.contrib.auth.backends.ModelBackend',
+    'guardian.backends.ObjectPermissionBackend',
+)
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

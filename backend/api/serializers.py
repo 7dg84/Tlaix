@@ -94,13 +94,13 @@ class RowSerializer(serializers.ModelSerializer):
 
 
 class TabSerializer(serializers.ModelSerializer):
-    table_id = serializers.PrimaryKeyRelatedField(
-        queryset=Table.objects.all(), source='table', required=False
-    )
+    # table_id = serializers.PrimaryKeyRelatedField(
+    #     queryset=Table.objects.all(), source='table', required=False
+    # )
 
     class Meta:
         model = Tab
-        fields = ['id', 'table_id', 'name', 'label', 'order']
+        fields = ['id', 'table', 'name', 'label', 'order']
         read_only_fields = ['id']
 
 
