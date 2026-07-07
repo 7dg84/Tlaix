@@ -85,13 +85,34 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+import socket
+
+db_host = os.environ.get('POSTGRES_HOST', 'localhost')
+if db_host == 'db':
+    try:
+        socket.gethostbyname('db')
+    except socket.gaierror:
+        db_host = 'localhost'
+        
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    )
+}
+
+if not DEBUG:
+    REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'] = (
+        'rest_framework.renderers.JSONRenderer',
+    )
+
 DATABASES = {
     'default': {
         'ENGINE': os.environ.get('DB_ENGINE', 'django.db.backends.postgresql'),
         'NAME': os.environ.get('POSTGRES_DB', 'tlaix'),
         'USER': os.environ.get('POSTGRES_USER', 'tlaix'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'tlaixpassword'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'HOST': db_host,
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 }

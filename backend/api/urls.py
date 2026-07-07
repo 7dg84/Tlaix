@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import TableViewSet, ColumnViewSet, RowViewSet, TabViewSet, CellValueViewSet, TabView, login, register, logout, user, login_clients
 
 router = DefaultRouter()
-router.register(r'tables', TableViewSet)
+router.register(r'tables', TableViewSet, basename="table")
 
 urlpatterns = [
     # User Auth
