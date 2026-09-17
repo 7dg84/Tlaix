@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15
@@ -31,12 +29,16 @@ services:
       - "8000:8000"
     depends_on:
       - db
+    volumes:
+      - django_media:/app/media
     networks:
       - internal_net
 
   react:
     build:
-      context: ./frontend/tabula-dash-flow
+      context: ./frontend
+    ports:
+      - "80:80"
     networks:
       - internal_net
     depends_on:
@@ -56,6 +58,9 @@ services:
       - npm_letsencrypt:/etc/letsencrypt
     networks:
       - internal_net
+    profiles:
+      - npm
+      - test
 
   cloudflare-tunnel:
     image: cloudflare/cloudflared:latest
@@ -67,11 +72,15 @@ services:
       - internal_net
     depends_on:
       - django
+    profiles:
+      - cloudflare
+      - test
 
 volumes:
   pgdata:
   npm_data:
   npm_letsencrypt:
+  django_media:
 
 networks:
   internal_net:
