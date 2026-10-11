@@ -5,7 +5,7 @@ import { CreateTableDialog } from "@/components/CreateTableDialog";
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { toast } from "react-hot-toast";
-import { getTables, createTable } from '../api/tables';
+import { getTables, createTable, tabService, rowService } from '../api';
 import { manageError } from '../api/manageErrors';
 
 const Index = () => {
@@ -33,7 +33,7 @@ const Index = () => {
   }, []);
 
   const handleCreateTable = async (tableData: any) => {
-    console.log(tableData)
+    console.log(tableData);
     let newTable = null;
     // Save table via API
     try {
@@ -49,34 +49,50 @@ const Index = () => {
         setTables((prev) => [...prev, newTable]);
       }
 
-      toast(`La tabla "${newTable.name}" se creó exitosamente`);
-      // navigate(`/table/${newTable.id}`);
+      toast.success(`La tabla "${newTable.name}" se creó exitosamente`);
     } catch (error) {
       console.error("Error al crear tabla:", error);
       manageError(error);
       return;
     }
 
-    // Save rows via API (if any)
+    // Save tabs via API (if any, otherwise create a default "General" tab)
     try {
-      for (const row of tableData.rows) {
-        console.log(row);
+      const tabsToCreate = (tableData.tabs && tableData.tabs.length > 0)
+        ? tableData.tabs
+        : [{ name: "General" }];
+
+      for (let i = 0; i < tabsToCreate.length; i++) {
+        const tab = tabsToCreate[i];
+        await tabService.create(newTable.id, {
+          table_id: newTable.id,
+          name: tab.name,
+          label: tab.name,
+          order: i,
+        });
       }
-      toast(`Se crearon ${tableData.rows.length} filas para la tabla "${newTable.name}"`);
     } catch (error) {
-      console.error("Error al crear filas:", error);
-      toast("No se pudieron crear las filas. Verifica la conexión con la API.");
+      console.error("Error al crear pestañas:", error);
+      toast.error("No se pudieron crear las pestañas en la API.");
     }
 
-    // Save tabs via API (if any)
+    // Save rows via API (if any)
     try {
-      for (const tab of tableData.tabs) {
-        console.log(tab)
+      if (tableData.rows && tableData.rows.length > 0) {
+        for (let i = 0; i < tableData.rows.length; i++) {
+          const rowName = tableData.rows[i];
+          await rowService.create(newTable.id, {
+            table_id: newTable.id,
+            name: rowName,
+            data: {},
+            order: i,
+          });
+        }
+        toast.success(`Se crearon ${tableData.rows.length} filas para la tabla "${newTable.name}"`);
       }
-      toast(`Se crearon ${tableData.tabs.length} columnas para la tabla "${newTable.name}"`);
     } catch (error) {
-      console.error("Error al crear columnas:", error);
-      toast("No se pudieron crear las columnas. Verifica la conexión con la API.");
+      console.error("Error al crear filas:", error);
+      toast.error("No se pudieron crear las filas en la API.");
     }
   };
 

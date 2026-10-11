@@ -12,6 +12,7 @@
 - [X] Cuando se crea una tabla nueva acualizar la lista de tablas 
 - [ ] Que se hace cuando se crea una columna si no hay tabs
 - [ ] Añadir filas desde la creacion
+- [ ] Añadir filas desde archivo
 - [ ] Cuando se inicie sesion, refrescar
 - [ ] Actualizar texto, lo hace cada que se actualiza algo, retrazar con un timer, para no sobrecargar la bd, cuando el elemento deje de estar activo o un segundo despues
 - [ ] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece

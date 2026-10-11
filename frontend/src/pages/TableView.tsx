@@ -102,7 +102,26 @@ const TableView = () => {
         setActiveTabId(firstTab.id);
         await loadTabContent(tableId, firstTab.id);
       } else {
-        toast.error("Esta tabla no tiene pestañas configuradas.");
+        // Si la tabla no tiene pestañas, creamos una pestaña "General" por defecto automáticamente
+        try {
+          const defaultTab = await tabService.create(tableId, {
+            table_id: tableId,
+            name: "General",
+            label: "General",
+            order: 0,
+          });
+          const formatted = [{
+            id: defaultTab.id.toString(),
+            name: defaultTab.name,
+            label: defaultTab.label || defaultTab.name,
+          }];
+          setTabs(formatted);
+          setActiveTabId(defaultTab.id.toString());
+          await loadTabContent(tableId, defaultTab.id.toString());
+        } catch (tabErr) {
+          console.error("Error creando pestaña por defecto:", tabErr);
+          toast.error("Esta tabla no tiene pestañas configuradas.");
+        }
       }
     } catch (error) {
       manageError(error);
@@ -121,28 +140,35 @@ const TableView = () => {
   };
 
   const handleAddRow = async (name: string) => {
-    const newRowData: any = { name };
+    if (!name.trim()) return;
 
     if (tableId) {
       try {
         const createdRow = await rowService.create(tableId, {
           table_id: tableId,
-          name,
+          name: name.trim(),
           data: {},
+        });
+
+        // Inicializar las celdas con las columnas actuales de la pestaña
+        const cells: Record<string, any> = {};
+        columns.forEach((col) => {
+          cells[col.id] = col.type === "checkbox" ? false : null;
         });
 
         const newRow: TableRow = {
           id: createdRow.id.toString(),
           name: createdRow.name,
-          ...createdRow.data,
+          ...cells,
+          ...(createdRow.data || {}),
         };
 
-        setRows([...rows, newRow]);
+        setRows((prev) => [...prev, newRow]);
         toast.success("Fila creada correctamente");
       } catch (error) {
         manageError(error);
         console.error("Error creando fila:", error);
-        toast.error("Error al guardar en la API. Agregando localmente.");
+        toast.error("Error al guardar la fila en la API.");
       }
     }
   };
@@ -195,16 +221,21 @@ const TableView = () => {
         const newTab: TabDefinition = {
           id: createdTab.id.toString(),
           name: createdTab.name,
-          label: createdTab.name,
+          label: createdTab.label || createdTab.name,
         };
 
-        setTabs([...tabs, newTab]);
+        setTabs((prev) => [...prev, newTab]);
         toast.success("Pestaña creada correctamente");
+
+        // Si no había ninguna pestaña activa, activamos la nueva y cargamos su contenido
+        if (!activeTabId) {
+          setActiveTabId(newTab.id);
+          await loadTabContent(tableId, newTab.id);
+        }
       } catch (error) {
         manageError(error);
         console.error("Error creando pestaña:", error);
         toast.error("Error al guardar en la API. Agregando localmente.");
-        // setTabs([...tabs, tab]);
       }
     }
   };

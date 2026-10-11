@@ -23,13 +23,10 @@ import {
 } from "@/components/ui/select";
 
 type RowImportMethod = "file" | "text" | "manual";
-type ColumnType = "text" | "checkbox" | "int" | "float" | "select" | "date";
 
-interface Tab {
+export interface Tab {
   id: string;
   name: string;
-  type: ColumnType;
-  options?: string[];
 }
 
 interface CreateTableDialogProps {
@@ -52,11 +49,8 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [showAddRowModal, setShowAddRowModal] = useState(false);
   const [newRowName, setNewRowName] = useState("");
-  const [showAddColumnModal, setShowAddColumnModal] = useState(false);
-  const [newColumnName, setNewColumnName] = useState("");
-  const [newColumnType, setNewColumnType] = useState<ColumnType>("text");
-  const [newColumnOptions, setNewColumnOptions] = useState<string[]>([]);
-  const [newOptionInput, setNewOptionInput] = useState("");
+  const [showAddTabModal, setShowAddTabModal] = useState(false);
+  const [newTabName, setNewTabName] = useState("");
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -93,31 +87,20 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
     setRows(rows.filter((_, i) => i !== index));
   };
 
-  const handleAddColumn = () => {
-    if (newColumnName.trim()) {
+  const handleAddTab = () => {
+    if (newTabName.trim()) {
       const newTab: Tab = {
         id: Date.now().toString(),
-        name: newColumnName.trim(),
-        type: newColumnType,
-        options: newColumnType === "select" ? newColumnOptions : undefined,
+        name: newTabName.trim(),
       };
       setTabs([...tabs, newTab]);
-      setNewColumnName("");
-      setNewColumnType("text");
-      setNewColumnOptions([]);
-      setShowAddColumnModal(false);
+      setNewTabName("");
+      setShowAddTabModal(false);
     }
   };
 
-  const handleAddOption = () => {
-    if (newOptionInput.trim()) {
-      setNewColumnOptions([...newColumnOptions, newOptionInput.trim()]);
-      setNewOptionInput("");
-    }
-  };
-
-  const handleRemoveTab = (columnId: string) => {
-    setTabs(tabs.filter((col) => col.id !== columnId));
+  const handleRemoveTab = (tabId: string) => {
+    setTabs(tabs.filter((t) => t.id !== tabId));
   };
 
   const handleCreate = () => {
@@ -325,7 +308,7 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowAddColumnModal(true)}
+                  onClick={() => setShowAddTabModal(true)}
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Agregar Pestaña
@@ -337,11 +320,6 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <p className="font-medium text-sm">{tab.name}</p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {tab.type}
-                          {tab.type === "select" &&
-                            ` (${tab.options?.length || 0} opciones)`}
-                        </p>
                       </div>
                       <Button
                         variant="ghost"
@@ -355,6 +333,11 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
                   </Card>
                 ))}
               </div>
+              {tabs.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  (Opcional) Si no agregas pestañas, se creará una pestaña "General" automáticamente.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -433,96 +416,34 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
           </div>
         )}
 
-        {/* Add Column Modal */}
-        {showAddColumnModal && (
+        {/* Add Tab Modal */}
+        {showAddTabModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <Card className="w-96 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="font-semibold text-lg">Agregar Columna</h3>
+            <Card className="w-96 p-6 space-y-4">
+              <h3 className="font-semibold text-lg">Agregar Pestaña</h3>
               <div className="space-y-2">
-                <Label htmlFor="tab-name">Nombre de la Columna</Label>
+                <Label htmlFor="tab-name">Nombre de la Pestaña</Label>
                 <Input
                   id="tab-name"
-                  value={newColumnName}
-                  onChange={(e) => setNewColumnName(e.target.value)}
-                  placeholder="Nombre de la columna"
+                  value={newTabName}
+                  onChange={(e) => setNewTabName(e.target.value)}
+                  placeholder="Ej: General, Asistencia, Tareas"
+                  onKeyDown={(e) => e.key === "Enter" && handleAddTab()}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="tab-type">Tipo de Input</Label>
-                <Select
-                  value={newColumnType}
-                  onValueChange={(value: ColumnType) =>
-                    setNewColumnType(value)
-                  }
-                >
-                  <SelectTrigger id="tab-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="text">Texto</SelectItem>
-                    <SelectItem value="checkbox">Checkbox</SelectItem>
-                    <SelectItem value="int">Número Entero</SelectItem>
-                    <SelectItem value="float">Número Decimal</SelectItem>
-                    <SelectItem value="select">Lista Desplegable</SelectItem>
-                    <SelectItem value="date">Fecha</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {newColumnType === "select" && (
-                <div className="space-y-2">
-                  <Label>Opciones de la Lista</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={newOptionInput}
-                      onChange={(e) => setNewOptionInput(e.target.value)}
-                      placeholder="Nueva opción"
-                      onKeyDown={(e) => e.key === "Enter" && handleAddOption()}
-                    />
-                    <Button onClick={handleAddOption} size="icon">
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  {newColumnOptions.length > 0 && (
-                    <div className="space-y-1 max-h-32 overflow-y-auto border rounded p-2">
-                      {newColumnOptions.map((option, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-1 bg-muted/50 rounded text-sm"
-                        >
-                          <span>{option}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() =>
-                              setNewColumnOptions(
-                                newColumnOptions.filter((_, i) => i !== index)
-                              )
-                            }
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
               <div className="flex gap-2">
                 <Button
-                  onClick={handleAddColumn}
+                  onClick={handleAddTab}
                   className="flex-1"
-                  disabled={!newColumnName.trim()}
+                  disabled={!newTabName.trim()}
                 >
                   Agregar
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setShowAddColumnModal(false);
-                    setNewColumnName("");
-                    setNewColumnType("text");
-                    setNewColumnOptions([]);
+                    setShowAddTabModal(false);
+                    setNewTabName("");
                   }}
                   className="flex-1"
                 >
