@@ -45,7 +45,9 @@ const Index = () => {
       console.log("Tabla creada:", resTable.data);
       newTable = resTable.data;
 
-      // TODO: Actualizar la lista de tablas en el estado
+      if (resTable.status === 201) {
+        setTables((prev) => [...prev, newTable]);
+      }
 
       toast(`La tabla "${newTable.name}" se creó exitosamente`);
       // navigate(`/table/${newTable.id}`);

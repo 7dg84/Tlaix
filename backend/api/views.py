@@ -18,6 +18,8 @@ from guardian.shortcuts import get_objects_for_user, assign_perm
 # Users
 # Login
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def login(request):
     # Lógica de autenticación
     # Campos requeridos: email, password
@@ -50,6 +52,8 @@ def login(request):
 
 # Register
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def register(request):
     # Lógica de registro aquí
     serializer = UserSerializer(data=request.data)
@@ -94,6 +98,8 @@ def logout(request):
 
 # Cliets
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def login_clients(request):
     # Lógica de autenticación
     # Campos requeridos: email, password

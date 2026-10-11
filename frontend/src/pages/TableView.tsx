@@ -290,6 +290,7 @@ const TableView = () => {
               ))}
             </SelectContent>
           </Select>
+        );
       case "date":
         return (
           <Input

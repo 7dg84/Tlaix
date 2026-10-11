@@ -1,10 +1,19 @@
 - [ ] backend/serializers.py actualizar rows, data ya no se crea desde hay
 - [ ] backend/permisions revisar y actualizar 
 - [ ] backend/ cell value update delete
-- [ ] backend/ endpoint para visualizar tablas
+- [X] backend/ endpoint para visualizar tablas
 - [ ] backend/ api de relacion de alumnos y tablas (revisar permisos) (cifrado de clave para seguridad)
 - [ ] client/terminar pruebas para POC
 - [ ] Add row en react
 - [x] Dato fecha en sistema (Completado)
 - [ ] Dashboard de permisos
-- [ ] Modo revision
+- [ ] Modo revision, y grupos de revision
+- [ ] Cliente Desktop
+- [X] Cuando se crea una tabla nueva acualizar la lista de tablas 
+- [ ] Que se hace cuando se crea una columna si no hay tabs
+- [ ] Añadir filas desde la creacion
+- [ ] Cuando se inicie sesion, refrescar
+- [ ] Actualizar texto, lo hace cada que se actualiza algo, retrazar con un timer, para no sobrecargar la bd, cuando el elemento deje de estar activo o un segundo despues
+- [ ] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece
+- [ ] hacer un limit en el tabview para no realentizar las consultas, y manejarlo en el front end para consultar conforme se scrollea
+- [ ] 
