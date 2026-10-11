@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 
 type RowImportMethod = "file" | "text" | "manual";
-type ColumnType = "text" | "checkbox" | "int" | "float" | "select";
+type ColumnType = "text" | "checkbox" | "int" | "float" | "select" | "date";
 
 interface Tab {
   id: string;
@@ -464,6 +464,7 @@ export const CreateTableDialog = ({ onCreateTable }: CreateTableDialogProps) => 
                     <SelectItem value="int">Número Entero</SelectItem>
                     <SelectItem value="float">Número Decimal</SelectItem>
                     <SelectItem value="select">Lista Desplegable</SelectItem>
+                    <SelectItem value="date">Fecha</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

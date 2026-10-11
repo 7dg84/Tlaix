@@ -176,6 +176,7 @@ class Column(models.Model):
         ('int', 'Integer'),
         ('float', 'Float'),
         ('select', 'Select'),
+        ('date', 'Date'),
     ]
     
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)

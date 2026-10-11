@@ -1,3 +1,4 @@
+import datetime
 from rest_framework import serializers
 from .models import Table, Column, Row, Tab, CellValue
 from django.contrib.auth.models import User
@@ -149,6 +150,16 @@ class CellValueSerializer(serializers.ModelSerializer):
         if column_type == 'select' and not isinstance(value, (str, list, dict)):
             raise serializers.ValidationError(
                 {"value": "A string, list or dict value is required for this column."})
+        if column_type == 'date':
+            if not isinstance(value, (datetime.date, datetime.datetime, str)):
+                raise serializers.ValidationError(
+                    {"value": "A valid date string (YYYY-MM-DD) or date is required for this column."})
+            if isinstance(value, str):
+                try:
+                    datetime.date.fromisoformat(value[:10])
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError(
+                        {"value": "Date has wrong format. Use YYYY-MM-DD format."})
 
         cell = CellValue.objects.create(**validated_data)
         if value is not None:
@@ -159,6 +170,35 @@ class CellValueSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         """Actualiza una celda existente y su valor"""
         value = self.initial_data.get('value')
+        column = validated_data.get('column', instance.column)
+        column_type = column.type
+
+        if value is not None:
+            if column_type == 'text' and not isinstance(value, str):
+                raise serializers.ValidationError(
+                    {"value": "A string value is required for this column."})
+            if column_type == 'checkbox' and not isinstance(value, bool):
+                raise serializers.ValidationError(
+                    {"value": "A boolean value is required for this column."})
+            if column_type == 'int' and not isinstance(value, (int, float)):
+                raise serializers.ValidationError(
+                    {"value": "A numeric value is required for this column."})
+            if column_type == 'float' and not isinstance(value, (int, float)):
+                raise serializers.ValidationError(
+                    {"value": "A numeric value is required for this column."})
+            if column_type == 'select' and not isinstance(value, (str, list, dict)):
+                raise serializers.ValidationError(
+                    {"value": "A string, list or dict value is required for this column."})
+            if column_type == 'date':
+                if not isinstance(value, (datetime.date, datetime.datetime, str)):
+                    raise serializers.ValidationError(
+                        {"value": "A valid date string (YYYY-MM-DD) or date is required for this column."})
+                if isinstance(value, str):
+                    try:
+                        datetime.date.fromisoformat(value[:10])
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            {"value": "Date has wrong format. Use YYYY-MM-DD format."})
 
         # Actualizar row y column si se proporcionan
         for attr, val in validated_data.items():

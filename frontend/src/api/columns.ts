@@ -5,7 +5,7 @@ export interface Column {
   table_id: string;
   tab_id: String,
   name: string;
-  type: 'text' | 'checkbox' | 'int' | 'float' | 'select';
+  type: 'text' | 'checkbox' | 'int' | 'float' | 'select' | 'date';
   options?: string[];
   order: number;
 }

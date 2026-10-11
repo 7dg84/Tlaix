@@ -1,5 +1,6 @@
 from django.db import models
 import uuid
+import datetime
 
 class Table(models.Model):
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
@@ -37,6 +38,7 @@ class Column(models.Model):
         ('int', 'Integer'),
         ('float', 'Float'),
         ('select', 'Select'),
+        ('date', 'Date'),
     ]
     
     id = models.CharField(max_length=50, primary_key=True, default=uuid.uuid4)
@@ -89,6 +91,7 @@ class CellValue(models.Model):
     value_float = models.FloatField(blank=True, null=True)
     value_bool = models.BooleanField(default=False, null=True)
     value_json = models.JSONField(blank=True, null=True)  # Para selects múltiples u otros
+    value_date = models.DateField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -114,6 +117,8 @@ class CellValue(models.Model):
             return self.value_bool
         elif column_type == 'select':
             return self.value_json or self.value_text
+        elif column_type == 'date':
+            return self.value_date.isoformat() if self.value_date else None
         return None
     
     def set_value(self, value):
@@ -132,3 +137,15 @@ class CellValue(models.Model):
                 self.value_json = value
             else:
                 self.value_text = str(value) if value is not None else None
+        elif column_type == 'date':
+            if value is None or value == '':
+                self.value_date = None
+            elif isinstance(value, datetime.date):
+                self.value_date = value
+            elif isinstance(value, datetime.datetime):
+                self.value_date = value.date()
+            elif isinstance(value, str):
+                try:
+                    self.value_date = datetime.date.fromisoformat(value[:10])
+                except (ValueError, TypeError):
+                    self.value_date = None

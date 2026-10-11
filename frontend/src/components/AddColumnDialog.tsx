@@ -21,7 +21,7 @@ import {
 import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
-export type ColumnType = "text" | "checkbox" | "int" | "float" | "select";
+export type ColumnType = "text" | "checkbox" | "int" | "float" | "select" | "date";
 
 export interface ColumnDefinition {
   id: string;
@@ -118,6 +118,7 @@ export const AddColumnDialog = ({ onAddColumn }: AddColumnDialogProps) => {
                 <SelectItem value="int">Número Entero</SelectItem>
                 <SelectItem value="float">Número Decimal</SelectItem>
                 <SelectItem value="select">Lista Desplegable</SelectItem>
+                <SelectItem value="date">Fecha</SelectItem>
               </SelectContent>
             </Select>
           </div>

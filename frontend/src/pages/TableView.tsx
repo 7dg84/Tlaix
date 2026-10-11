@@ -290,6 +290,14 @@ const TableView = () => {
               ))}
             </SelectContent>
           </Select>
+      case "date":
+        return (
+          <Input
+            type="date"
+            value={value || ""}
+            onChange={(e) => updateCellValue(row.id, column.id, e.target.value)}
+            className="max-w-[160px]"
+          />
         );
       case "text":
       default:
