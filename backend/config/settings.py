@@ -53,6 +53,11 @@ INSTALLED_APPS = [
     'personal',
 ]
 
+# Feature Flag para Módulo Opcional de Asistencia
+ENABLE_ATTENDANCE_MODULE = os.environ.get('ENABLE_ATTENDANCE_MODULE', '1') == '1'
+if ENABLE_ATTENDANCE_MODULE:
+    INSTALLED_APPS.append('asistencia')
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',

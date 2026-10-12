@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, X } from "lucide-react";
 import { rowService, columnService, tabService, tableService, cellService, manageError } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,6 +21,7 @@ import { AddRowDialog } from "@/components/AddRowDialog";
 import { AddTabDialog, TabDefinition } from "@/components/AddTabDialog";
 import { Header } from "@/components/Header";
 import { CellEditor } from "@/components/CellEditor";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 
 
 interface TableRow {
@@ -38,6 +39,8 @@ const TableView = () => {
   const [activeTabId, setActiveTabId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [tablename, setTableName] = useState("");
+  const [tabToDelete, setTabToDelete] = useState<TabDefinition | null>(null);
+  const [columnToDelete, setColumnToDelete] = useState<ColumnDefinition | null>(null);
 
   // Cargar datos al montar el componente
   useEffect(() => {
@@ -274,6 +277,57 @@ const TableView = () => {
     }
   };
 
+  const handleConfirmDeleteTab = async () => {
+    if (!tableId || !tabToDelete) return;
+    try {
+      await tabService.delete(tableId, tabToDelete.id);
+      const remainingTabs = tabs.filter((t) => t.id !== tabToDelete.id);
+      setTabs(remainingTabs);
+
+      if (activeTabId === tabToDelete.id) {
+        if (remainingTabs.length > 0) {
+          const nextTab = remainingTabs[0];
+          setActiveTabId(nextTab.id);
+          await loadTabContent(tableId, nextTab.id);
+        } else {
+          setActiveTabId("");
+          setColumns([]);
+          setRows([]);
+        }
+      }
+      toast.success("Pestaña eliminada correctamente");
+    } catch (error) {
+      manageError(error);
+      console.error("Error eliminando pestaña:", error);
+      toast.error("Error al eliminar la pestaña.");
+    } finally {
+      setTabToDelete(null);
+    }
+  };
+
+  const handleConfirmDeleteColumn = async () => {
+    if (!tableId || !columnToDelete) return;
+    try {
+      await columnService.delete(tableId, columnToDelete.id);
+      const deletedColumnId = columnToDelete.id;
+      setColumns((prev) => prev.filter((col) => col.id !== deletedColumnId));
+      setRows((prev) =>
+        prev.map((row) => {
+          const updatedRow = { ...row };
+          delete updatedRow[deletedColumnId];
+          return updatedRow;
+        })
+      );
+      toast.success("Columna eliminada correctamente");
+    } catch (error) {
+      manageError(error);
+      console.error("Error eliminando columna:", error);
+      toast.error("Error al eliminar la columna.");
+    } finally {
+      setColumnToDelete(null);
+    }
+  };
+
 
 
   return (
@@ -290,20 +344,37 @@ const TableView = () => {
         </div>
 
         <Tabs value={activeTabId} onValueChange={handleTabChange} className="w-full">
-          <TabsList className={`grid w-full mb-8`} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
-            {
-              tabs.length === 0 ?
-
-                <div className="text-center text-muted-foreground col-span-full">
-                  No hay pestañas disponibles. Agrega una nueva pestaña para comenzar.
-                </div>
-                :
-                tabs.map((tab) => (
-                  <TabsTrigger key={tab.id} value={tab.id}>
-                    {tab.label}
-                  </TabsTrigger>
-                ))
-            }
+          <TabsList
+            className="grid w-full mb-8"
+            style={{
+              gridTemplateColumns:
+                tabs.length > 0
+                  ? `repeat(${tabs.length}, minmax(0, 1fr))`
+                  : undefined,
+            }}
+          >
+            {tabs.length === 0 ? (
+              <div className="text-center text-muted-foreground col-span-full">
+                No hay pestañas disponibles. Agrega una nueva pestaña para comenzar.
+              </div>
+            ) : (
+              tabs.map((tab) => (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="flex items-center justify-center group"
+                >
+                  <span>{tab.label}</span>
+                  <X
+                    className="w-3.5 h-3.5 ml-2 hover:text-destructive hover:bg-destructive/10 rounded-full p-0.5 transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTabToDelete(tab);
+                    }}
+                  />
+                </TabsTrigger>
+              ))
+            )}
           </TabsList>
 
           {tabs.map((tab) => (
@@ -315,7 +386,17 @@ const TableView = () => {
                       <th className="text-left p-4 font-semibold">Nombre</th>
                       {columns.map((column) => (
                         <th key={column.id} className="text-left p-4 font-semibold">
-                          {column.name}
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{column.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setColumnToDelete(column)}
+                              className="hover:text-destructive hover:bg-destructive/10 rounded-full p-0.5 transition-colors text-muted-foreground"
+                              title="Eliminar columna"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </th>
                       ))}
                       <th className="text-left p-4 font-semibold">Acciones</th>
@@ -356,6 +437,26 @@ const TableView = () => {
             </TabsContent>
           ))}
         </Tabs>
+
+        <ConfirmDeleteDialog
+          open={!!tabToDelete}
+          onOpenChange={(open) => {
+            if (!open) setTabToDelete(null);
+          }}
+          title="Eliminar pestaña"
+          description={`¿Estás seguro de que deseas eliminar la pestaña "${tabToDelete?.label || ""}"? Se eliminarán las columnas asociadas.`}
+          onConfirm={handleConfirmDeleteTab}
+        />
+
+        <ConfirmDeleteDialog
+          open={!!columnToDelete}
+          onOpenChange={(open) => {
+            if (!open) setColumnToDelete(null);
+          }}
+          title="Eliminar columna"
+          description={`¿Estás seguro de que deseas eliminar la columna "${columnToDelete?.name || ""}"? Los datos de esta columna se perderán.`}
+          onConfirm={handleConfirmDeleteColumn}
+        />
       </main>
     </div>
   );

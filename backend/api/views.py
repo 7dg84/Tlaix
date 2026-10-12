@@ -571,8 +571,8 @@ class TableBulkUploadView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        created_tabs = []
-        created_rows = []
+        # created_tabs = []
+        # created_rows = []
 
         try:
             with transaction.atomic():
@@ -632,7 +632,7 @@ class TableBulkUploadView(APIView):
                         assign_perm('delete_tab', user, new_tab)
                         assign_perm('view_tab', user, new_tab)
 
-                        created_tabs.append(new_tab)
+                        # created_tabs.append(new_tab)
 
                 # 2. Procesar filas (rows)
                 if rows_data:
@@ -689,7 +689,7 @@ class TableBulkUploadView(APIView):
                                     cell.set_value(val)
                                     cell.save()
 
-                        created_rows.append(new_row)
+                        # created_rows.append(new_row)
 
         except Exception as e:
             return Response(
@@ -701,7 +701,7 @@ class TableBulkUploadView(APIView):
             'message': 'Carga masiva completada exitosamente.',
             'tabs_count': len(created_tabs),
             'rows_count': len(created_rows),
-            'tabs': TabSerializer(created_tabs, many=True).data,
-            'rows': RowSerializer(created_rows, many=True).data,
+            # 'tabs': TabSerializer(created_tabs, many=True).data,
+            # 'rows': RowSerializer(created_rows, many=True).data,
         }, status=status.HTTP_201_CREATED)
 

@@ -11,3 +11,6 @@ urlpatterns = [
     path('personal/', include('personal.urls')),
 ] # + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
+if getattr(settings, 'ENABLE_ATTENDANCE_MODULE', False):
+    urlpatterns.append(path('api/asistencia/', include('asistencia.urls')))
+

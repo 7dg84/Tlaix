@@ -957,8 +957,13 @@ location /static/ { proxy_pass http://django:8000/static/; }
    - Probar `POST /personal/check/`: Verificar que se generen tanto la columna de checkbox (`<fecha>_asistencia`) como la columna de hora exacta (`<fecha>_hora`).
 4. **Comportamiento de Sesión y Expiración**:
    - Probar `POST /api/user/logout/` y verificar que la cookie `auth_token` sea invalidada tanto en el cliente (cabecera Set-Cookie con Max-Age=0) como en la tabla `authtoken_token` de Django.
+5. **Flujos de Eliminación y Modales de Confirmación (Frontend SPA)**:
+   - **Tablas (`Index.tsx`)**: Cada tarjeta de tabla cuenta con un icono en la esquina superior derecha (`Trash2`). Al hacer clic se previene la navegación y se despliega `ConfirmDeleteDialog`. Al confirmar, se ejecuta `DELETE /api/tables/<pk>/`, se actualiza el estado reactivo `tables` y se emite notificación toast.
+   - **Pestañas (`TableView.tsx`)**: Cada `TabsTrigger` contiene un icono `X` con prevención de propagación. Al hacer clic se despliega `ConfirmDeleteDialog`. Al confirmar, se ejecuta `DELETE /api/tables/<table_id>/tabs/<pk>/`, se actualiza el estado `tabs`, y si era la pestaña activa, conmuta a la primera pestaña restante y recarga su contenido.
+   - **Columnas (`TableView.tsx`)**: Cada encabezado de columna (`<th>`) incluye un botón `X`. Al hacer clic se despliega `ConfirmDeleteDialog`. Al confirmar, se ejecuta `DELETE /api/tables/<table_id>/columns/<pk>/`, se retira la columna del estado `columns` y se purgan sus celdas del estado en memoria de `rows`.
 
 ---
+
 
 ## 9. Hallazgos Críticos, Inconsistencias y Plan de Acción (TODO)
 
@@ -966,12 +971,11 @@ Alineado con el estado del código y los puntos identificados en `TODO.md`:
 
 | # | Módulo | Hallazgo / Tarea Pendiente | Prioridad | Agente Responsable |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | **DevOps / TI** | Rutas `/students/` y `/personal/` no están expuestas en `frontend/nginx.conf`. | **Alta (Bloqueante)** | TI / DevOps |
-| 2 | **Backend** | Inconsistencia de autenticación: `students` y `personal` solo aceptan `TokenAuthentication`, impidiendo el uso directo de HTTPOnly cookies desde el navegador. | **Alta** | Backend |
-| 3 | **Frontend** | La página `ApiDocumentation.tsx` está desfasada (describe MySQL, columnas pertenecientes a tabla y no a tab, y omite CellValues). | **Media** | Frontend |
+| 1 | **DevOps / TI** | Rutas `/students/` y `/personal/` unificadas bajo `/api/asistencia/` (servidas vía proxy reverso Nginx `/api/`). | **Completado** | Backend / TI |
+| 2 | **Backend** | Autenticación híbrida (`CookieTokenAuthentication` + `TokenAuthentication`) implementada en todos los endpoints de `/api/asistencia/`. | **Completado** | Backend |
+| 3 | **Frontend** | Eliminación de página desfasada `ApiDocumentation.tsx` y cliente `api/asistencia.ts` tipado en TypeScript. | **Completado** | Frontend |
 | 4 | **Backend / DB**| El directorio `db/` contiene scripts y Dockerfile obsoletos de MySQL (`db.sql`). Deben eliminarse o archivarse para evitar confusiones de arquitectura. | **Baja** | TI / Backend |
 | 5 | **Frontend** | Debounce de 1s y guardado al desenfocar (`onBlur`) en actualización de celdas (`CellEditor`) para optimizar rendimiento de red. | **Completado** | Frontend |
-
 | 6 | **Backend** | Paginación / límite en `TabView` (`/api/tables/tabview/`) para optimizar rendimiento en tablas con más de 1,000 filas. | **Media** | Backend |
 | 7 | **Backend / Frontend** | Endpoint para importación masiva de filas y pestañas en lote (`POST /api/tables/<table_id>/bulk/`) e integración en creación de tablas. | **Completado** | Agente Orquestador |
 

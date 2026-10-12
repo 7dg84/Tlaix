@@ -12,9 +12,13 @@
 - [X] Cuando se crea una tabla nueva acualizar la lista de tablas 
 - [X] Que se hace cuando se crea una columna si no hay tabs
 - [X] Añadir filas desde la creacion (Completado con endpoint bulk y CreateTableDialog)
-- [ ] Añadir filas desde archivo
+- [ ] Añadir filas desde archivo, solo csv, manejar archivos grandes y poder seleccionar la columna a importar
 - [ ] Cuando se inicie sesion, refrescar
 - [X] Actualizar texto, lo hace cada que se actualiza algo, retrazar con un timer, para no sobrecargar la bd, cuando el elemento deje de estar activo o un segundo despues (Completado con CellEditor debounce 1s + onBlur)
 - [ ] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece
 - [ ] hacer un limit en el tabview para no realentizar las consultas, y manejarlo en el front end para consultar conforme se scrollea
 - [X] Crear un endpoint para subir varias filas y tabs al mismo tiempo (Completado: POST /api/tables/<table_id>/bulk/)
+- [X] Eliminar tables, tabs, columns (Completado con ConfirmDeleteDialog y actualización de estado reactivo en Index y TableView)
+- [ ] Dato datetime y time
+- [ ] Permisos de ver el modulo de asistencia
+- [ ]

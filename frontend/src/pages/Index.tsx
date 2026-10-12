@@ -1,11 +1,13 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Database, Users, Package, FileText, Settings, BarChart3 } from "lucide-react";
+import { Database, Users, Package, FileText, Settings, BarChart3, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateTableDialog } from "@/components/CreateTableDialog";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
+import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { toast } from "react-hot-toast";
-import { getTables, createTable, tableService, tabService, rowService } from '../api';
+import { getTables, createTable, deleteTable, tableService, tabService, rowService } from '../api';
 import { manageError } from '../api/manageErrors';
 
 const Index = () => {
@@ -13,6 +15,7 @@ const Index = () => {
   const [customTables, setCustomTables] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [tables, setTables] = useState<any[]>([]);
+  const [tableToDelete, setTableToDelete] = useState<any | null>(null);
 
   // API
   const loadTables = async () => {
@@ -89,6 +92,19 @@ const Index = () => {
     }
   };
 
+  const handleDeleteTable = async () => {
+    if (!tableToDelete) return;
+    try {
+      await deleteTable(tableToDelete.id);
+      setTables((prev) => prev.filter((table) => table.id !== tableToDelete.id));
+      toast.success(`La tabla "${tableToDelete.name}" se eliminó exitosamente`);
+      setTableToDelete(null);
+    } catch (error) {
+      console.error("Error al eliminar tabla:", error);
+      manageError(error);
+      toast.error("Hubo un problema al eliminar la tabla.");
+    }
+  };
 
   const allTables = [...tables, ...customTables];
 
@@ -103,11 +119,24 @@ const Index = () => {
             const Icon = table.icon || Database;
             return (
               <Link key={table.id} to={`/table/${table.id}`}>
-                <Card className="group hover:shadow-[var(--shadow-hover)] transition-all duration-300 cursor-pointer border-border/50 hover:border-primary/50 overflow-hidden">
+                <Card className="group hover:shadow-[var(--shadow-hover)] transition-all duration-300 cursor-pointer border-border/50 hover:border-primary/50 overflow-hidden relative">
                   <div className={`h-2 bg-gradient-to-r ${table.color}`} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-3 right-3 h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 z-10"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setTableToDelete(table);
+                    }}
+                    title="Eliminar tabla"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                   <CardHeader>
                     <div className="flex items-start justify-between">
-                      <div className="flex-1">
+                      <div className="flex-1 pr-6">
                         <CardTitle className="text-xl group-hover:text-primary transition-colors">
                           {table.name}
                         </CardTitle>
@@ -115,7 +144,7 @@ const Index = () => {
                           {table.description}
                         </CardDescription>
                       </div>
-                      <div className={`p-3 rounded-lg bg-gradient-to-br ${table.color} text-white group-hover:scale-110 transition-transform duration-300`}>
+                      <div className={`p-3 rounded-lg bg-gradient-to-br ${table.color} text-white group-hover:scale-110 transition-transform duration-300 mr-6`}>
                         <Icon className="w-6 h-6" />
                       </div>
                     </div>
@@ -133,6 +162,20 @@ const Index = () => {
           })}
         </div>
       </main>
+
+      <ConfirmDeleteDialog
+        open={!!tableToDelete}
+        onOpenChange={(open) => {
+          if (!open) setTableToDelete(null);
+        }}
+        title="Eliminar tabla"
+        description={
+          tableToDelete
+            ? `¿Estás seguro de que deseas eliminar la tabla "${tableToDelete.name}"? Esta acción no se puede deshacer y eliminará todas sus filas y columnas.`
+            : ""
+        }
+        onConfirm={handleDeleteTable}
+      />
     </div>
   );
 };
