@@ -626,3 +626,113 @@ class DateCellValueTestCase(APITestCase):
         self.assertEqual(response_invalid_type.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('value', response_invalid_type.data)
 
+
+class TableBulkUploadTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='bulk_user', password='password123')
+        self.other_user = User.objects.create_user(username='other_bulk_user', password='password123')
+
+        content_type_tab = ContentType.objects.get_for_model(Tab)
+        content_type_row = ContentType.objects.get_for_model(Row)
+        self.add_tab_perm = Permission.objects.get(codename='add_tab', content_type=content_type_tab)
+        self.add_row_perm = Permission.objects.get(codename='add_row', content_type=content_type_row)
+
+        self.table = Table.objects.create(name='Bulk Table', description='Table for bulk testing')
+        assign_perm('change_table', self.user, self.table)
+        assign_perm('view_table', self.user, self.table)
+        self.user.user_permissions.add(self.add_tab_perm, self.add_row_perm)
+        self.user = User.objects.get(id=self.user.id)
+
+    def test_anonymous_denied(self):
+        url = f'/api/tables/{self.table.id}/bulk/'
+        response = self.client.post(url, {'tabs': ['Tab 1'], 'rows': ['Row 1']})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_user_without_table_permission_denied(self):
+        self.client.force_authenticate(user=self.other_user)
+        self.other_user.user_permissions.add(self.add_tab_perm, self.add_row_perm)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        response = self.client.post(url, {'tabs': ['Tab 1'], 'rows': ['Row 1']})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_bulk_upload_tabs_and_rows_success(self):
+        self.client.force_authenticate(user=self.user)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        payload = {
+            'tabs': [
+                {'name': 'Tab A', 'label': 'Etiqueta A', 'order': 0},
+                {'name': 'Tab B', 'label': 'Etiqueta B', 'order': 1}
+            ],
+            'rows': [
+                {'name': 'Fila 1', 'order': 0},
+                {'name': 'Fila 2', 'order': 1}
+            ]
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['tabs_count'], 2)
+        self.assertEqual(response.data['rows_count'], 2)
+
+        # Verificar BD
+        self.assertEqual(Tab.objects.filter(table=self.table).count(), 2)
+        self.assertEqual(Row.objects.filter(table=self.table).count(), 2)
+
+        # Verificar permisos Guardian asignados al usuario en los tabs creados
+        tab_a = Tab.objects.get(table=self.table, name='Tab A')
+        tab_perms = get_perms(self.user, tab_a)
+        self.assertIn('view_tab', tab_perms)
+        self.assertIn('change_tab', tab_perms)
+        self.assertIn('delete_tab', tab_perms)
+
+    def test_bulk_upload_string_format(self):
+        self.client.force_authenticate(user=self.user)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        payload = {
+            'tabs': ['Pestaña Directa 1', 'Pestaña Directa 2'],
+            'rows': ['Alumno Uno', 'Alumno Dos', 'Alumno Tres']
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['tabs_count'], 2)
+        self.assertEqual(response.data['rows_count'], 3)
+        self.assertTrue(Tab.objects.filter(table=self.table, name='Pestaña Directa 1').exists())
+        self.assertTrue(Row.objects.filter(table=self.table, name='Alumno Tres').exists())
+
+    def test_bulk_upload_with_cell_values(self):
+        # Crear un tab y una columna primero
+        tab = Tab.objects.create(table=self.table, name='General', label='General', order=0)
+        col = Column.objects.create(tab=tab, name='Email', type='text', order=0)
+
+        self.client.force_authenticate(user=self.user)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        payload = {
+            'rows': [
+                {'name': 'Usuario Test', 'data': {str(col.id): 'test@example.com'}}
+            ]
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['rows_count'], 1)
+
+        row_obj = Row.objects.get(table=self.table, name='Usuario Test')
+        cell = CellValue.objects.get(row=row_obj, column=col)
+        self.assertEqual(cell.get_value(), 'test@example.com')
+
+    def test_bulk_upload_duplicate_tab_rejected(self):
+        Tab.objects.create(table=self.table, name='Existente', label='Existente', order=0)
+        self.client.force_authenticate(user=self.user)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        payload = {
+            'tabs': [{'name': 'Existente'}]
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+
+    def test_bulk_upload_empty_payload_rejected(self):
+        self.client.force_authenticate(user=self.user)
+        url = f'/api/tables/{self.table.id}/bulk/'
+        response = self.client.post(url, {'tabs': [], 'rows': []}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+

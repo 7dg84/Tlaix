@@ -5,7 +5,7 @@ import { CreateTableDialog } from "@/components/CreateTableDialog";
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { toast } from "react-hot-toast";
-import { getTables, createTable, tabService, rowService } from '../api';
+import { getTables, createTable, tableService, tabService, rowService } from '../api';
 import { manageError } from '../api/manageErrors';
 
 const Index = () => {
@@ -56,45 +56,39 @@ const Index = () => {
       return;
     }
 
-    // Save tabs via API (if any, otherwise create a default "General" tab)
+    // Save tabs and rows via bulk API in a single transaction
     try {
       const tabsToCreate = (tableData.tabs && tableData.tabs.length > 0)
-        ? tableData.tabs
-        : [{ name: "General" }];
+        ? tableData.tabs.map((tab: any, idx: number) => ({
+            name: tab.name,
+            label: tab.name,
+            order: idx,
+          }))
+        : [{ name: "General", label: "General", order: 0 }];
 
-      for (let i = 0; i < tabsToCreate.length; i++) {
-        const tab = tabsToCreate[i];
-        await tabService.create(newTable.id, {
-          table_id: newTable.id,
-          name: tab.name,
-          label: tab.name,
-          order: i,
-        });
-      }
-    } catch (error) {
-      console.error("Error al crear pestañas:", error);
-      toast.error("No se pudieron crear las pestañas en la API.");
-    }
-
-    // Save rows via API (if any)
-    try {
-      if (tableData.rows && tableData.rows.length > 0) {
-        for (let i = 0; i < tableData.rows.length; i++) {
-          const rowName = tableData.rows[i];
-          await rowService.create(newTable.id, {
-            table_id: newTable.id,
+      const rowsToCreate = (tableData.rows && tableData.rows.length > 0)
+        ? tableData.rows.map((rowName: string, idx: number) => ({
             name: rowName,
-            data: {},
-            order: i,
-          });
-        }
-        toast.success(`Se crearon ${tableData.rows.length} filas para la tabla "${newTable.name}"`);
+            order: idx,
+          }))
+        : [];
+
+      const bulkRes = await tableService.bulkUpload(newTable.id, {
+        tabs: tabsToCreate,
+        rows: rowsToCreate,
+      });
+
+      console.log("Carga masiva completada:", bulkRes);
+      if (rowsToCreate.length > 0) {
+        toast.success(`Se crearon ${bulkRes.rows_count} filas y ${bulkRes.tabs_count} pestañas para "${newTable.name}"`);
       }
     } catch (error) {
-      console.error("Error al crear filas:", error);
-      toast.error("No se pudieron crear las filas en la API.");
+      console.error("Error al crear pestañas y filas en lote:", error);
+      manageError(error);
+      toast.error("Hubo un problema al crear las pestañas o filas iniciales.");
     }
   };
+
 
   const allTables = [...tables, ...customTables];
 

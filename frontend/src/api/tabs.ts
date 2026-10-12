@@ -15,9 +15,13 @@ export const tabService = {
   create: (tableId: string, data: Omit<Tab, 'id'>) =>
     apiClient.post<Tab>(`/tables/${tableId}/tabs/`, data).then(res => res.data),
   
+  bulkCreate: (tableId: string, tabs: Array<string | { name: string; label?: string; order?: number }>) =>
+    apiClient.post(`/tables/${tableId}/bulk/`, { tabs }).then(res => res.data),
+
   update: (tableId: string, tabId: string, data: Partial<Tab>) =>
     apiClient.put<Tab>(`/tables/${tableId}/tabs/${tabId}/`, data).then(res => res.data),
   
   delete: (tableId: string, tabId: string) =>
     apiClient.delete(`/tables/${tableId}/tabs/${tabId}/`).then(res => res.data),
 };
+

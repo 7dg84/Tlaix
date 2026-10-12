@@ -6,13 +6,20 @@ from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, B
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token as AuthToken
 from .models import Table, Column, Row, Tab, CellValue
-from .serializers import UserSerializer, TableSerializer, ColumnSerializer, RowSerializer, TabSerializer, CellValueSerializer, TabViewColumnSerializer, TabViewRowSerializer
+from .serializers import (
+    UserSerializer, TableSerializer, ColumnSerializer, RowSerializer,
+    TabSerializer, CellValueSerializer, TabViewColumnSerializer,
+    TabViewRowSerializer, TableBulkUploadSerializer
+)
 from .permissions import CookieTokenAuthentication, CompleteDjangoObjectPermissions
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
+from django.db import transaction
+from django.db.models import Max
 from guardian.shortcuts import get_objects_for_user, assign_perm
+
 
 
 # Users
@@ -520,3 +527,181 @@ class TabView(APIView):
         }
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class TableBulkUploadView(APIView):
+    """
+    Endpoint para subir varias filas y pestañas al mismo tiempo a una tabla existente.
+    POST /api/tables/<table_id>/bulk/
+    """
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, table_id):
+        table = get_object_or_404(Table, id=table_id)
+
+        user = request.user
+        # Validar permisos sobre la tabla
+        if not (user.is_superuser or
+                user.has_perm('api.change_table', table) or
+                user.has_perm('api.add_table', table) or
+                user.has_perm('api.view_table', table)):
+            return Response(
+                {'detail': 'No tienes permisos para modificar esta tabla.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = TableBulkUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tabs_data = serializer.validated_data.get('tabs', [])
+        rows_data = serializer.validated_data.get('rows', [])
+
+        # Validar permisos para pestañas si se envían
+        if tabs_data and not (user.is_superuser or user.has_perm('api.add_tab')):
+            return Response(
+                {'detail': 'No tienes permisos para crear pestañas.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Validar permisos para filas si se envían
+        if rows_data and not (user.is_superuser or user.has_perm('api.add_row')):
+            return Response(
+                {'detail': 'No tienes permisos para crear filas.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        created_tabs = []
+        created_rows = []
+
+        try:
+            with transaction.atomic():
+                # 1. Procesar pestañas (tabs)
+                if tabs_data:
+                    max_tab_order = Tab.objects.filter(table=table).aggregate(
+                        max_order=Max('order')
+                    )['max_order']
+                    current_tab_order = 0 if max_tab_order is None else max_tab_order + 1
+
+                    for item in tabs_data:
+                        if isinstance(item, str):
+                            tab_name = item.strip()
+                            tab_label = tab_name
+                            tab_order = current_tab_order
+                            current_tab_order += 1
+                        elif isinstance(item, dict):
+                            tab_name = str(item.get('name', '')).strip()
+                            tab_label = str(item.get('label', '')).strip() or tab_name
+                            raw_order = item.get('order')
+                            if raw_order is not None:
+                                try:
+                                    tab_order = int(raw_order)
+                                except (ValueError, TypeError):
+                                    tab_order = current_tab_order
+                            else:
+                                tab_order = current_tab_order
+                            current_tab_order = max(current_tab_order, tab_order + 1)
+                        else:
+                            return Response(
+                                {'error': 'Formato inválido en elemento de tabs. Debe ser texto u objeto.'},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        if not tab_name:
+                            return Response(
+                                {'error': 'El nombre de cada pestaña no puede estar vacío.'},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        if Tab.objects.filter(table=table, name=tab_name).exists():
+                            return Response(
+                                {'error': f"Ya existe una pestaña con el nombre '{tab_name}' en esta tabla."},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        new_tab = Tab.objects.create(
+                            table=table,
+                            name=tab_name,
+                            label=tab_label,
+                            order=tab_order
+                        )
+
+                        # Asignar permisos por objeto al usuario creador
+                        assign_perm('add_tab', user, new_tab)
+                        assign_perm('change_tab', user, new_tab)
+                        assign_perm('delete_tab', user, new_tab)
+                        assign_perm('view_tab', user, new_tab)
+
+                        created_tabs.append(new_tab)
+
+                # 2. Procesar filas (rows)
+                if rows_data:
+                    max_row_order = Row.objects.filter(table=table).aggregate(
+                        max_order=Max('order')
+                    )['max_order']
+                    current_row_order = 0 if max_row_order is None else max_row_order + 1
+
+                    for item in rows_data:
+                        if isinstance(item, str):
+                            row_name = item.strip()
+                            row_order = current_row_order
+                            row_data = {}
+                            current_row_order += 1
+                        elif isinstance(item, dict):
+                            row_name = str(item.get('name', '')).strip()
+                            raw_order = item.get('order')
+                            if raw_order is not None:
+                                try:
+                                    row_order = int(raw_order)
+                                except (ValueError, TypeError):
+                                    row_order = current_row_order
+                            else:
+                                row_order = current_row_order
+                            current_row_order = max(current_row_order, row_order + 1)
+                            row_data = item.get('data', {})
+                        else:
+                            return Response(
+                                {'error': 'Formato inválido en elemento de rows. Debe ser texto u objeto.'},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        if not row_name:
+                            return Response(
+                                {'error': 'El nombre de cada fila no puede estar vacío.'},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        new_row = Row.objects.create(
+                            table=table,
+                            name=row_name,
+                            order=row_order
+                        )
+
+                        # Si se proporcionó data para las celdas, mapear columnas existentes
+                        if row_data and isinstance(row_data, dict):
+                            col_ids = list(row_data.keys())
+                            columns = Column.objects.filter(id__in=col_ids, tab__table=table)
+                            cols_map = {str(c.id): c for c in columns}
+                            for col_id, val in row_data.items():
+                                col = cols_map.get(str(col_id))
+                                if col:
+                                    cell, _ = CellValue.objects.get_or_create(row=new_row, column=col)
+                                    cell.set_value(val)
+                                    cell.save()
+
+                        created_rows.append(new_row)
+
+        except Exception as e:
+            return Response(
+                {'error': f'Error procesando la carga masiva: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response({
+            'message': 'Carga masiva completada exitosamente.',
+            'tabs_count': len(created_tabs),
+            'rows_count': len(created_rows),
+            'tabs': TabSerializer(created_tabs, many=True).data,
+            'rows': RowSerializer(created_rows, many=True).data,
+        }, status=status.HTTP_201_CREATED)
+

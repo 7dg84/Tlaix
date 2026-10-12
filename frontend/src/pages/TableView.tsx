@@ -20,6 +20,8 @@ import { AddColumnDialog, ColumnDefinition } from "@/components/AddColumnDialog"
 import { AddRowDialog } from "@/components/AddRowDialog";
 import { AddTabDialog, TabDefinition } from "@/components/AddTabDialog";
 import { Header } from "@/components/Header";
+import { CellEditor } from "@/components/CellEditor";
+
 
 interface TableRow {
   id: string;
@@ -254,25 +256,12 @@ const TableView = () => {
     }
   };
 
-  const updateCellValue = async (rowId: string, columnId: string, value: any) => {
-    const column = columns.find((col) => col.id === columnId);
-    let parsedValue = value;
-    if (column) {
-      if (column.type === "checkbox") {
-        parsedValue = value === true || value === "true";
-      } else if (column.type === "int") {
-        parsedValue = parseInt(value, 10);
-        if (isNaN(parsedValue)) parsedValue = null;
-      } else if (column.type === "float") {
-        parsedValue = parseFloat(value);
-        if (isNaN(parsedValue)) parsedValue = null;
-      }
-    }
-
-    const updatedRows = rows.map((row) =>
-      row.id === rowId ? { ...row, [columnId]: parsedValue } : row
+  const updateCellValue = async (rowId: string, columnId: string, parsedValue: any) => {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === rowId ? { ...row, [columnId]: parsedValue } : row
+      )
     );
-    setRows(updatedRows);
 
     if (tableId) {
       try {
@@ -285,64 +274,6 @@ const TableView = () => {
     }
   };
 
-  const renderCell = (row: TableRow, column: ColumnDefinition) => {
-    const value = row[column.id];
-
-    switch (column.type) {
-      case "checkbox":
-        return (
-          <Checkbox
-            checked={value || false}
-            onCheckedChange={(checked) => updateCellValue(row.id, column.id, checked)}
-          />
-        );
-      case "int":
-      case "float":
-        return (
-          <Input
-            type="number"
-            step={column.type === "float" ? "0.01" : "1"}
-            value={value || ""}
-            onChange={(e) => updateCellValue(row.id, column.id, e.target.value)}
-            className="max-w-[150px]"
-          />
-        );
-      case "select":
-        return (
-          <Select value={value || ""} onValueChange={(val) => updateCellValue(row.id, column.id, val)}>
-            <SelectTrigger className="max-w-[200px]">
-              <SelectValue placeholder="Seleccionar" />
-            </SelectTrigger>
-            <SelectContent>
-              {column.options?.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-      case "date":
-        return (
-          <Input
-            type="date"
-            value={value || ""}
-            onChange={(e) => updateCellValue(row.id, column.id, e.target.value)}
-            className="max-w-[160px]"
-          />
-        );
-      case "text":
-      default:
-        return (
-          <Input
-            type="text"
-            value={value || ""}
-            onChange={(e) => updateCellValue(row.id, column.id, e.target.value)}
-            className="max-w-[250px]"
-          />
-        );
-    }
-  };
 
 
   return (
@@ -399,7 +330,13 @@ const TableView = () => {
                         <td className="p-4 font-medium">{row.name}</td>
                         {columns.map((column) => (
                           <td key={column.id} className="p-4">
-                            {renderCell(row, column)}
+                            <CellEditor
+                              key={`${row.id}-${column.id}`}
+                              rowId={row.id}
+                              column={column}
+                              value={row[column.id]}
+                              onSave={updateCellValue}
+                            />
                           </td>
                         ))}
                         <td className="p-4">

@@ -28,9 +28,13 @@ export const rowService = {
     return apiClient.post<Row>(`/tables/${tableId}/rows/`, dataToSend).then(res => res.data);
   },
   
+  bulkCreate: (tableId: string, rows: Array<string | { name: string; order?: number; data?: Record<string, any> }>) =>
+    apiClient.post(`/tables/${tableId}/bulk/`, { rows }).then(res => res.data),
+
   update: (tableId: string, rowId: string, data: Partial<Row>) =>
     apiClient.put<Row>(`/tables/${tableId}/rows/${rowId}/`, data).then(res => res.data),
     
   delete: (tableId: string, rowId: string) =>
     apiClient.delete(`/tables/${tableId}/rows/${rowId}/`).then(res => res.data),
 };
+

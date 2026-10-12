@@ -228,3 +228,24 @@ class TabViewRowSerializer(serializers.ModelSerializer):
         model = Row
         fields = ['id', 'name', 'order',]
         read_only_fields = ['id', ]
+
+
+class TableBulkUploadSerializer(serializers.Serializer):
+    tabs = serializers.ListField(
+        required=False,
+        default=list
+    )
+    rows = serializers.ListField(
+        required=False,
+        default=list
+    )
+
+    def validate(self, attrs):
+        tabs = attrs.get('tabs', [])
+        rows = attrs.get('rows', [])
+        if not tabs and not rows:
+            raise serializers.ValidationError(
+                "Debe proporcionar al menos una lista no vacía en 'tabs' o 'rows'."
+            )
+        return attrs
+
