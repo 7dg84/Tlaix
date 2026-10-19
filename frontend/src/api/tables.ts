@@ -22,13 +22,39 @@ export interface BulkUploadResponse {
   rows: any[];
 }
 
+export interface TabViewParams {
+  row_limit?: number | string;
+  row_offset?: number;
+  col_limit?: number | string;
+  col_offset?: number;
+}
+
+export interface TabViewPagination {
+  total_rows: number;
+  row_limit: number;
+  row_offset: number;
+  has_more_rows: boolean;
+  total_columns: number;
+  col_limit: number;
+  col_offset: number;
+  has_more_columns: boolean;
+}
+
+export interface TabViewResponse {
+  tab: any;
+  pagination?: TabViewPagination;
+  columns: any[];
+  rows: any[];
+}
+
 // Funciones individuales que retornan la respuesta completa de Axios (para Index.tsx)
 export const getTables = () => apiClient.get<Table[]>('/tables/');
 export const getTableById = (id: string) => apiClient.get<Table>(`/tables/${id}/`);
 export const createTable = (data: any) => apiClient.post<Table>('/tables/', data);
 export const updateTable = (id: string, data: any) => apiClient.put<Table>(`/tables/${id}/`, data);
 export const deleteTable = (id: string) => apiClient.delete(`/tables/${id}/`);
-export const getTabView = (tableId: string, tabId: string) => apiClient.get<any>(`/tables/tabview/${tableId}/${tabId}/`);
+export const getTabView = (tableId: string, tabId: string, params?: TabViewParams) =>
+  apiClient.get<TabViewResponse>(`/tables/tabview/${tableId}/${tabId}/`, { params });
 export const bulkUploadTable = (tableId: string, data: BulkUploadPayload) =>
   apiClient.post<BulkUploadResponse>(`/tables/${tableId}/bulk/`, data);
 
@@ -39,7 +65,8 @@ export const tableService = {
   create: (data: Omit<Table, 'id'>) => createTable(data).then(res => res.data),
   update: (id: string, data: Partial<Table>) => updateTable(id, data).then(res => res.data),
   delete: (id: string) => deleteTable(id).then(res => res.data),
-  getTabView: (tableId: string, tabId: string) => getTabView(tableId, tabId).then(res => res.data),
+  getTabView: (tableId: string, tabId: string, params?: TabViewParams) =>
+    getTabView(tableId, tabId, params).then(res => res.data),
   bulkUpload: (tableId: string, data: BulkUploadPayload) =>
     bulkUploadTable(tableId, data).then(res => res.data),
 };

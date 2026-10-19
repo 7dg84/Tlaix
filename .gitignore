@@ -17,3 +17,7 @@ scripts/qrs/
 .idea/
 .vscode/
 *.log
+
+# Opencode
+.opencode
+.opencode.json

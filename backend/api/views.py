@@ -257,6 +257,27 @@ class RowViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+    def perform_create(self, serializer):
+        """
+        Asigna un `order` incremental cuando el cliente no lo envía.
+
+        Crear filas desde la UI no incluye `order`, así que todas quedaban con
+        el valor por defecto (0) y empataban entre sí, impidiendo una
+        paginación estable en TabView. Solo aplicamos el incremento si el
+        cliente NO envía `order` explícito: la carga masiva
+        (TableBulkUploadView) y cualquier cliente que envíe `order` conservan
+        su valor sin cambios.
+        """
+        if 'order' in self.request.data:
+            serializer.save()
+            return
+
+        table = serializer.validated_data.get('table')
+        max_order = Row.objects.filter(table=table).aggregate(
+            max_order=Max('order')
+        )['max_order']
+        serializer.save(order=0 if max_order is None else max_order + 1)
+
 
 class TabViewSet(viewsets.ModelViewSet):
     queryset = Tab.objects.none()
@@ -478,6 +499,47 @@ class CellValueViewSet(viewsets.ModelViewSet):
 # Endpoind to visualize a table in a tab, combining rows and columns, like an excel table
 
 
+# Valores por defecto/límites para la paginación del TabView
+TABVIEW_DEFAULT_ROW_LIMIT = 50
+TABVIEW_MAX_ROW_LIMIT = 500
+TABVIEW_DEFAULT_COL_LIMIT = 100
+TABVIEW_MAX_COL_LIMIT = 500
+
+
+def _parse_int_param(raw_value, default, maximum=None, allow_all=False):
+    """
+    Normaliza un parámetro de paginación recibido por query string.
+
+    - Si no viene (None) o viene vacío, devuelve ``default``.
+    - Si ``allow_all`` es True y el valor es ``all`` o ``0``, devuelve ``None``
+      para indicar "sin límite" (modo no paginado).
+    - Valores no numéricos o negativos caen al valor por defecto.
+    - Si se define ``maximum``, el resultado se recorta a ese tope.
+    """
+    if raw_value is None:
+        return default
+
+    value = str(raw_value).strip().lower()
+    if value == '':
+        return default
+
+    if allow_all and value in ('all', '0'):
+        return None
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+
+    if parsed < 0:
+        return default
+
+    if maximum is not None:
+        parsed = min(parsed, maximum)
+
+    return parsed
+
+
 class TabView(APIView):
     permission_classes = [IsAuthenticated, CompleteDjangoObjectPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
@@ -489,15 +551,54 @@ class TabView(APIView):
         tab = get_object_or_404(Tab, id=tab_id, table_id=table_id)
         self.check_object_permissions(request, tab)
 
+        # --- Parámetros de paginación -------------------------------------
+        # row_limit/col_limit aceptan 'all' (o 0) para devolver todo (modo
+        # no paginado, útil para exportaciones completas).
+        row_limit = _parse_int_param(
+            request.query_params.get('row_limit'),
+            default=TABVIEW_DEFAULT_ROW_LIMIT,
+            maximum=TABVIEW_MAX_ROW_LIMIT,
+            allow_all=True,
+        )
+        row_offset = _parse_int_param(
+            request.query_params.get('row_offset'), default=0
+        )
+        col_limit = _parse_int_param(
+            request.query_params.get('col_limit'),
+            default=TABVIEW_DEFAULT_COL_LIMIT,
+            maximum=TABVIEW_MAX_COL_LIMIT,
+            allow_all=True,
+        )
+        col_offset = _parse_int_param(
+            request.query_params.get('col_offset'), default=0
+        )
+
+        # Totales reales (para calcular has_more_*)
+        total_rows = table.rows.count()
+        total_columns = tab.columns.count()
+
+        # --- Slices (consulta acotada, O(limit)) --------------------------
         columns_qs = tab.columns.all()
-        # Cargamos las filas de la tabla
-        # table = Table.objects.prefetch_related('rows').get(id=table_id)
-        rows_qs = table.rows.all()
+        # Orden explícito y determinista: `order` puede empatar (p. ej. varias
+        # filas con order=0) y sin desempate Postgres no garantiza el mismo
+        # orden físico entre consultas, lo que haría que la paginación por
+        # bloques (row_offset) saltara filas. `created_at` + `id` desempatan.
+        rows_qs = table.rows.order_by('order', 'created_at', 'id')
+
+        if col_limit is None:
+            columns_qs = columns_qs[col_offset:]
+        else:
+            columns_qs = columns_qs[col_offset: col_offset + col_limit]
+
+        if row_limit is None:
+            rows_qs = rows_qs[row_offset:]
+        else:
+            rows_qs = rows_qs[row_offset: row_offset + row_limit]
 
         columns = TabViewColumnSerializer(columns_qs, many=True).data
         rows = TabViewRowSerializer(rows_qs, many=True).data
 
-        # OBTENER TODAS LAS CELDAS EN UNA SOLA CONSULTA
+        # OBTENER SOLO LAS CELDAS DEL LOTE EN UNA SOLA CONSULTA
         col_ids = [c['id'] for c in columns]
         row_ids = [r['id'] for r in rows]
 
@@ -520,8 +621,22 @@ class TabView(APIView):
                 for c in columns
             }
 
+        # En modo "all" reflejamos como límite efectivo el total disponible
+        effective_row_limit = row_limit if row_limit is not None else total_rows
+        effective_col_limit = col_limit if col_limit is not None else total_columns
+
         response_data = {
             'tab': TabSerializer(tab).data,
+            'pagination': {
+                'total_rows': total_rows,
+                'row_limit': effective_row_limit,
+                'row_offset': row_offset,
+                'has_more_rows': (row_offset + len(rows)) < total_rows,
+                'total_columns': total_columns,
+                'col_limit': effective_col_limit,
+                'col_offset': col_offset,
+                'has_more_columns': (col_offset + len(columns)) < total_columns,
+            },
             'columns': columns,
             'rows': rows,  # Ahora cada fila contiene su objeto 'cells' integrado
         }
@@ -571,8 +686,8 @@ class TableBulkUploadView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # created_tabs = []
-        # created_rows = []
+        created_tabs = []
+        created_rows = []
 
         try:
             with transaction.atomic():
@@ -632,7 +747,7 @@ class TableBulkUploadView(APIView):
                         assign_perm('delete_tab', user, new_tab)
                         assign_perm('view_tab', user, new_tab)
 
-                        # created_tabs.append(new_tab)
+                        created_tabs.append(new_tab)
 
                 # 2. Procesar filas (rows)
                 if rows_data:
@@ -689,7 +804,7 @@ class TableBulkUploadView(APIView):
                                     cell.set_value(val)
                                     cell.save()
 
-                        # created_rows.append(new_row)
+                        created_rows.append(new_row)
 
         except Exception as e:
             return Response(

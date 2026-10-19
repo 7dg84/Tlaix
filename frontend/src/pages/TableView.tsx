@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Trash2, X } from "lucide-react";
+import { ArrowLeft, Loader2, Trash2, X } from "lucide-react";
 import { rowService, columnService, tabService, tableService, cellService, manageError } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,6 +30,9 @@ interface TableRow {
   [key: string]: any;
 }
 
+// Tamaño de bloque para la carga incremental de filas
+const ROW_PAGE_SIZE = 50;
+
 const TableView = () => {
   const { tableId } = useParams();
 
@@ -42,6 +45,19 @@ const TableView = () => {
   const [tabToDelete, setTabToDelete] = useState<TabDefinition | null>(null);
   const [columnToDelete, setColumnToDelete] = useState<ColumnDefinition | null>(null);
 
+  // Estado de paginación (carga por bloques)
+  const [hasMoreRows, setHasMoreRows] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Refs: centinela del observer, recuento de filas cargadas y guardas anti-duplicado
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const rowsCountRef = useRef(0);
+  const hasMoreRowsRef = useRef(false);
+  const isLoadingMoreRef = useRef(false);
+  const isInitialLoadRef = useRef(false);
+  // Pestaña activa actual: permite validar el resultado de una carga ya iniciada
+  const activeTabIdRef = useRef(activeTabId);
+
   // Cargar datos al montar el componente
   useEffect(() => {
     if (tableId) {
@@ -49,10 +65,32 @@ const TableView = () => {
     }
   }, [tableId]);
 
+  // Mantener la ref de pestaña activa al día para invalidar cargas en vuelo
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
+  // Mantener el recuento de filas sincronizado con lo renderizado: se usa como row_offset.
+  // Depende de `rows.length` para reflejar también altas y bajas de filas.
+  useEffect(() => {
+    rowsCountRef.current = rows.length;
+  }, [rows.length]);
+
   const loadTabContent = async (tId: string, tabId: string) => {
     setIsLoading(true);
+    // Evita que el centinela dispare una carga extra mientras llega el primer bloque
+    isInitialLoadRef.current = true;
+    // Resetear el estado de paginación al cambiar de pestaña
+    hasMoreRowsRef.current = false;
+    isLoadingMoreRef.current = false;
+    setHasMoreRows(false);
+    setIsLoadingMore(false);
+
     try {
-      const data = await tableService.getTabView(tId, tabId);
+      const data = await tableService.getTabView(tId, tabId, {
+        row_limit: ROW_PAGE_SIZE,
+        row_offset: 0,
+      });
 
       if (data.columns) {
         setColumns(data.columns.map((col: any) => ({
@@ -64,21 +102,98 @@ const TableView = () => {
       }
 
       if (data.rows) {
-        setRows(data.rows.map((row: any) => ({
+        const mappedRows = data.rows.map((row: any) => ({
           id: row.id.toString(),
           name: row.name,
           ...row.cells, // Desestructurar las celdas directamente en el objeto de la fila
-        })));
+        }));
+        setRows(mappedRows);
       }
+
+      // Si no viene el bloque de paginación, asumimos que no hay más filas
+      const more = data.pagination ? !!data.pagination.has_more_rows : false;
+      hasMoreRowsRef.current = more;
+      setHasMoreRows(more);
+
       toast.success("Contenido de pestaña cargado");
     } catch (error) {
       manageError(error);
       console.error("Error cargando contenido de pestaña:", error);
       toast.error("No se pudo cargar el contenido de la pestaña.");
+      // Sin offset válido, no reintentamos cargas incrementales
+      hasMoreRowsRef.current = false;
+      setHasMoreRows(false);
     } finally {
+      isInitialLoadRef.current = false;
       setIsLoading(false);
     }
   };
+
+  const loadMoreRows = useCallback(async () => {
+    if (!tableId || !activeTabId) return;
+    if (isInitialLoadRef.current) return;
+    if (!hasMoreRowsRef.current || isLoadingMoreRef.current) return;
+
+    // Pestaña a la que pertenece este bloque: si el usuario cambia de pestaña
+    // mientras la petición está en vuelo, el resultado ya no es válido
+    const requestedTabId = activeTabId;
+
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    try {
+      const offset = rowsCountRef.current;
+      const data = await tableService.getTabView(tableId, requestedTabId, {
+        row_limit: ROW_PAGE_SIZE,
+        row_offset: offset,
+      });
+
+      // Descartar el bloque si la pestaña activa cambió durante la carga:
+      // sus filas pertenecen a otra pestaña y no deben contaminar la actual
+      if (requestedTabId !== activeTabIdRef.current) return;
+
+      const newRows: TableRow[] = (data.rows || []).map((row: any) => ({
+        id: row.id.toString(),
+        name: row.name,
+        ...row.cells, // Desestructurar las celdas directamente en el objeto de la fila
+      }));
+
+      setRows((prev) => {
+        const existingIds = new Set(prev.map((row) => row.id));
+        const uniqueNewRows = newRows.filter((row) => !existingIds.has(row.id));
+        return [...prev, ...uniqueNewRows];
+      });
+
+      const more = data.pagination ? !!data.pagination.has_more_rows : false;
+      hasMoreRowsRef.current = more;
+      setHasMoreRows(more);
+    } catch (error) {
+      manageError(error);
+      console.error("Error cargando más filas:", error);
+      toast.error("No se pudieron cargar más filas.");
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
+  }, [tableId, activeTabId]);
+
+  // Carga por bloques al hacer scroll: observamos un centinela al final de la tabla
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreRows();
+        }
+      },
+      { root: null, rootMargin: "200px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMoreRows, activeTabId, tabs.length]);
 
   const loadTableData = async () => {
     if (!tableId) return;
@@ -433,6 +548,16 @@ const TableView = () => {
                     ))}
                   </tbody>
                 </table>
+
+                {/* Centinela para el IntersectionObserver de la carga por bloques */}
+                <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
+
+                {isLoadingMore && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Cargando más filas...</span>
+                  </div>
+                )}
               </div>
             </TabsContent>
           ))}

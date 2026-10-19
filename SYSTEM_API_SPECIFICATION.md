@@ -608,7 +608,8 @@ erDiagram
   }
   ```
 - **Comportamiento**: Crea la fila y, si se proporcionan columnas en `data`, crea/actualiza los registros en `CellValue`.
-- **Respuesta (201 Created)**: Objeto fila.
+- **`order` automático (desde 2026-10-19)**: si el cliente **omite** `order`, el backend asigna `(max order de la tabla) + 1` (o `0` si la tabla no tiene filas). Antes todas las filas creadas por la UI quedaban en `order=0` y empataban entre sí. Si el cliente envía `order` explícito, se respeta tal cual; la carga masiva (`TableBulkUploadView`) no cambia su comportamiento.
+- **Respuesta (201 Created)**: Objeto fila (incluye el `order` efectivamente asignado).
 
 #### 3. Detalle, Modificación y Eliminación
 - `GET /api/tables/<table_id>/rows/<pk>/`
@@ -670,10 +671,24 @@ erDiagram
 **Seguridad:** `[IsAuthenticated, CompleteDjangoObjectPermissions]`
 
 #### Descripción y Arquitectura
-Es el endpoint principal utilizado por el frontend para renderizar la cuadrícula interactiva tipo Excel. Resuelve el problema de consultas $N+1$ ejecutando una única consulta masiva con `.select_related('column')` y mapeando los valores en memoria en una matriz bidimensional indexada.
+Es el endpoint principal utilizado por el frontend para renderizar la cuadrícula interactiva tipo Excel. Resuelve el problema de consultas $N+1$ ejecutando una única consulta acotada al lote solicitado con `.select_related('column')` y mapeando los valores en memoria en una matriz bidimensional indexada.
+
+**Paginación (desde 2026-10-19):** el endpoint pagina filas y columnas en el servidor. Sin parámetros devuelve el primer lote de 50 filas y 100 columnas. El costo de la consulta es $O(\text{limit})$ en lugar de $O(\text{total})$, y las celdas solo se consultan para el lote de filas/columnas devuelto.
 
 - **Método**: `GET`
 - **Parámetros de Ruta**: `table_id` (UUID), `tab_id` (UUID)
+- **Parámetros de Query (opcionales)**:
+
+  | Parámetro | Tipo | Default | Máximo | Descripción |
+  | --- | --- | --- | --- | --- |
+  | `row_limit` | int \| `all` | `50` | `500` | Filas por lote. `all` o `0` devuelve todas (modo no paginado, para exportaciones). |
+  | `row_offset` | int | `0` | — | Filas a omitir antes del lote. |
+  | `col_limit` | int \| `all` | `100` | `500` | Columnas por lote. `all` o `0` devuelve todas. |
+  | `col_offset` | int | `0` | — | Columnas a omitir antes del lote. |
+
+  Valores no numéricos o negativos caen a los defaults; los límites mayores al máximo se recortan.
+
+- **Orden determinista (desde 2026-10-19)**: las filas se ordenan explícitamente por `order`, `created_at`, `id`. El desempate evita que, cuando varias filas comparten `order` (p. ej. `0`), Postgres devuelva un orden físico distinto entre consultas y la paginación por bloques (`row_offset`) salte filas. Recorrer todo el conjunto con lotes sucesivos devuelve cada fila exactamente una vez.
 - **Permisos**: Verifica permiso `view_table` sobre la tabla y `view_tab` sobre la pestaña.
 - **Respuesta (200 OK)**:
   ```json
@@ -684,6 +699,16 @@ Es el endpoint principal utilizado por el frontend para renderizar la cuadrícul
       "name": "General",
       "label": "Datos Generales",
       "order": 0
+    },
+    "pagination": {
+      "total_rows": 350,
+      "row_limit": 50,
+      "row_offset": 0,
+      "has_more_rows": true,
+      "total_columns": 12,
+      "col_limit": 100,
+      "col_offset": 0,
+      "has_more_columns": false
     },
     "columns": [
       {
@@ -716,6 +741,10 @@ Es el endpoint principal utilizado por el frontend para renderizar la cuadrícul
     ]
   }
   ```
+
+- **Ejemplo de siguiente lote**: `GET /api/tables/tabview/<table_id>/<tab_id>/?row_limit=50&row_offset=50`
+- **Frontend**: `TableView.tsx` usa `IntersectionObserver` (`root: null`) sobre un centinela al final de la tabla, dentro del contenedor original `<div className="overflow-x-auto">`; el desplazamiento vertical es el de la página y se concatenan lotes de 50 filas. Solo se añade un indicador "Cargando más filas..." mientras llega el bloque.
+- **Compatibilidad**: clientes que no envían parámetros reciben un lote seguro de 50 filas más el bloque `pagination`; para obtener todo el contenido deben enviar `row_limit=all` (y `col_limit=all` si la pestaña supera 100 columnas).
 
 ---
 
@@ -976,7 +1005,7 @@ Alineado con el estado del código y los puntos identificados en `TODO.md`:
 | 3 | **Frontend** | Eliminación de página desfasada `ApiDocumentation.tsx` y cliente `api/asistencia.ts` tipado en TypeScript. | **Completado** | Frontend |
 | 4 | **Backend / DB**| El directorio `db/` contiene scripts y Dockerfile obsoletos de MySQL (`db.sql`). Deben eliminarse o archivarse para evitar confusiones de arquitectura. | **Baja** | TI / Backend |
 | 5 | **Frontend** | Debounce de 1s y guardado al desenfocar (`onBlur`) en actualización de celdas (`CellEditor`) para optimizar rendimiento de red. | **Completado** | Frontend |
-| 6 | **Backend** | Paginación / límite en `TabView` (`/api/tables/tabview/`) para optimizar rendimiento en tablas con más de 1,000 filas. | **Media** | Backend |
+| 6 | **Backend / Frontend** | Paginación / límite en `TabView` (`/api/tables/tabview/`) para optimizar rendimiento en tablas con más de 1,000 filas (con infinite scroll en `TableView.tsx`). | **Completado** | Backend / Frontend |
 | 7 | **Backend / Frontend** | Endpoint para importación masiva de filas y pestañas en lote (`POST /api/tables/<table_id>/bulk/`) e integración en creación de tablas. | **Completado** | Agente Orquestador |
 
 

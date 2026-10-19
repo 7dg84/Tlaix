@@ -736,3 +736,293 @@ class TableBulkUploadTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TabViewPaginationTestCase(APITestCase):
+    """Pruebas de la paginación (filas y columnas) del endpoint TabView."""
+
+    ROWS = 120
+    COLUMNS = 3
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='tabview_user', password='password123')
+
+        self.table = Table.objects.create(name='TabView Pagination Table', description='Pagination tests')
+        self.tab = Tab.objects.create(table=self.table, name='Principal', label='Principal', order=0)
+
+        self.columns = [
+            Column.objects.create(tab=self.tab, name=f'Col {i + 1}', type='text', order=i)
+            for i in range(self.COLUMNS)
+        ]
+
+        self.rows = [
+            Row.objects.create(table=self.table, name=f'Row {i + 1}', order=i)
+            for i in range(self.ROWS)
+        ]
+
+        # Una celda por cada fila/columna con un valor identificable
+        for row in self.rows:
+            for column in self.columns:
+                cell = CellValue.objects.create(row=row, column=column)
+                cell.set_value(f'{row.name}::{column.name}')
+                cell.save()
+
+        assign_perm('view_table', self.user, self.table)
+        assign_perm('view_tab', self.user, self.tab)
+        # Refrescar el usuario para limpiar cachés de permisos de guardian
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def _url(self, **params):
+        url = reverse('tab_view', kwargs={'table_id': self.table.id, 'tab_id': self.tab.id})
+        if params:
+            query = '&'.join(f'{key}={value}' for key, value in params.items())
+            url = f'{url}?{query}'
+        return url
+
+    def test_default_request_returns_first_page_and_metadata(self):
+        """Sin parámetros se devuelve el primer lote (50 filas) con metadatos de paginación."""
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('pagination', response.data)
+
+        pagination = response.data['pagination']
+        self.assertEqual(pagination['total_rows'], self.ROWS)
+        self.assertEqual(pagination['row_limit'], 50)
+        self.assertEqual(pagination['row_offset'], 0)
+        self.assertTrue(pagination['has_more_rows'])
+        self.assertEqual(pagination['total_columns'], self.COLUMNS)
+        self.assertEqual(pagination['col_limit'], 100)
+        self.assertEqual(pagination['col_offset'], 0)
+        self.assertFalse(pagination['has_more_columns'])
+
+        self.assertEqual(len(response.data['rows']), 50)
+        self.assertEqual(len(response.data['columns']), self.COLUMNS)
+
+    def test_row_limit_and_offset_are_respected(self):
+        """row_limit y row_offset devuelven exactamente el lote solicitado."""
+        response = self.client.get(self._url(row_limit=10, row_offset=5))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        returned_ids = [row['id'] for row in response.data['rows']]
+        expected_ids = [str(row.id) for row in self.rows[5:15]]
+        self.assertEqual(returned_ids, expected_ids)
+
+        pagination = response.data['pagination']
+        self.assertEqual(pagination['row_limit'], 10)
+        self.assertEqual(pagination['row_offset'], 5)
+        self.assertTrue(pagination['has_more_rows'])
+
+    def test_last_page_has_no_more_rows(self):
+        """En el último lote has_more_rows es False y se devuelven las filas restantes."""
+        response = self.client.get(self._url(row_limit=50, row_offset=100))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        rows = response.data['rows']
+        self.assertEqual(len(rows), self.ROWS - 100)
+        self.assertEqual([r['id'] for r in rows], [str(r.id) for r in self.rows[100:]])
+
+        pagination = response.data['pagination']
+        self.assertEqual(pagination['row_offset'], 100)
+        self.assertFalse(pagination['has_more_rows'])
+
+    def test_cells_returned_match_the_paginated_batch(self):
+        """Las celdas devueltas pertenecen exactamente al lote de filas y columnas paginadas."""
+        response = self.client.get(self._url(row_limit=5, row_offset=10))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        rows = response.data['rows']
+        columns = response.data['columns']
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([r['id'] for r in rows], [str(r.id) for r in self.rows[10:15]])
+
+        column_ids = {str(column['id']) for column in columns}
+        for row in rows:
+            self.assertEqual(set(row['cells'].keys()), column_ids)
+            for column in columns:
+                cell = CellValue.objects.get(row_id=row['id'], column_id=column['id'])
+                self.assertEqual(row['cells'][column['id']], cell.get_value())
+
+    def test_row_limit_all_returns_every_row(self):
+        """row_limit=all devuelve todas las filas (modo no paginado)."""
+        response = self.client.get(self._url(row_limit='all'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['rows']), self.ROWS)
+        self.assertFalse(response.data['pagination']['has_more_rows'])
+
+    def test_row_limit_zero_returns_every_row(self):
+        """row_limit=0 también habilita el modo no paginado."""
+        response = self.client.get(self._url(row_limit=0))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['rows']), self.ROWS)
+        self.assertFalse(response.data['pagination']['has_more_rows'])
+
+    def test_row_limit_is_clamped_to_maximum(self):
+        """Un row_limit mayor al máximo permitido se recorta a 500."""
+        response = self.client.get(self._url(row_limit=5000))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['pagination']['row_limit'], 500)
+        self.assertEqual(len(response.data['rows']), self.ROWS)
+        self.assertFalse(response.data['pagination']['has_more_rows'])
+
+    def test_column_pagination(self):
+        """col_limit y col_offset paginan las columnas y calculan has_more_columns."""
+        response = self.client.get(self._url(col_limit=1, col_offset=0))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        columns = response.data['columns']
+        self.assertEqual(len(columns), 1)
+        self.assertEqual(columns[0]['id'], str(self.columns[0].id))
+
+        pagination = response.data['pagination']
+        self.assertEqual(pagination['total_columns'], self.COLUMNS)
+        self.assertEqual(pagination['col_limit'], 1)
+        self.assertEqual(pagination['col_offset'], 0)
+        self.assertTrue(pagination['has_more_columns'])
+
+        response2 = self.client.get(self._url(col_limit=2, col_offset=1))
+        columns2 = response2.data['columns']
+        self.assertEqual([c['id'] for c in columns2], [str(self.columns[1].id), str(self.columns[2].id)])
+        self.assertFalse(response2.data['pagination']['has_more_columns'])
+
+    def test_invalid_params_fall_back_to_defaults(self):
+        """Parámetros no numéricos o negativos caen a los valores por defecto."""
+        response = self.client.get(self._url(row_limit='abc', row_offset=-5))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        pagination = response.data['pagination']
+        self.assertEqual(pagination['row_limit'], 50)
+        self.assertEqual(pagination['row_offset'], 0)
+        self.assertEqual(len(response.data['rows']), 50)
+
+
+class TabViewRowOrderingTestCase(APITestCase):
+    """
+    El orden de filas de TabView debe ser determinista aunque `order` empate.
+
+    El modelo Row ordena por `order`, pero la creación desde la UI deja varias
+    filas con order=0; sin desempate la paginación puede saltar filas.
+    """
+
+    # Órdenes con empates intencionales (la mayoría en 0)
+    ORDERS = [0] * 20 + [1] * 3 + [2] * 2
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='ordering_user', password='password123')
+
+        self.table = Table.objects.create(name='TabView Ordering Table')
+        self.tab = Tab.objects.create(table=self.table, name='Principal', label='Principal', order=0)
+        self.column = Column.objects.create(tab=self.tab, name='Col 1', type='text', order=0)
+
+        self.rows = [
+            Row.objects.create(table=self.table, name=f'Row {i + 1}', order=order)
+            for i, order in enumerate(self.ORDERS)
+        ]
+
+        assign_perm('view_table', self.user, self.table)
+        assign_perm('view_tab', self.user, self.tab)
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def _url(self, **params):
+        url = reverse('tab_view', kwargs={'table_id': self.table.id, 'tab_id': self.tab.id})
+        if params:
+            query = '&'.join(f'{key}={value}' for key, value in params.items())
+            url = f'{url}?{query}'
+        return url
+
+    def _expected_ids(self):
+        """Mismo orden determinista esperado: order, created_at, id."""
+        return [
+            str(row.id) for row in
+            Row.objects.filter(table=self.table).order_by('order', 'created_at', 'id')
+        ]
+
+    def test_rows_are_ordered_deterministically_when_order_ties(self):
+        """Con `order` empatado el resultado sigue order -> created_at -> id."""
+        response = self.client.get(self._url(row_limit='all'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        returned = [row['id'] for row in response.data['rows']]
+        self.assertEqual(returned, self._expected_ids())
+
+    def test_tied_order_rows_keep_creation_order(self):
+        """Las filas que comparten `order` se devuelven en orden de creación."""
+        response = self.client.get(self._url(row_limit='all'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        returned = [row['id'] for row in response.data['rows']]
+        tied_rows = [row for row, order in zip(self.rows, self.ORDERS) if order == 0]
+        expected_tied = [str(row.id) for row in tied_rows]
+        # El primer bloque corresponde a las filas con order=0 (las creadas primero)
+        self.assertEqual(returned[:len(expected_tied)], expected_tied)
+
+    def test_block_pagination_does_not_skip_or_duplicate_rows(self):
+        """Recorrer todo el conjunto por bloques no salta ni duplica filas."""
+        block = 4
+        collected = []
+        for offset in range(0, len(self.ORDERS), block):
+            response = self.client.get(self._url(row_limit=block, row_offset=offset))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            pagination = response.data['pagination']
+            self.assertEqual(pagination['row_offset'], offset)
+            self.assertEqual(pagination['total_rows'], len(self.ORDERS))
+            collected.extend(row['id'] for row in response.data['rows'])
+
+        expected = self._expected_ids()
+        self.assertEqual(len(collected), len(self.ORDERS))
+        self.assertEqual(len(set(collected)), len(self.ORDERS))
+        self.assertEqual(collected, expected)
+
+    def test_repeated_requests_return_same_order(self):
+        """Dos peticiones idénticas devuelven exactamente el mismo bloque."""
+        first = self.client.get(self._url(row_limit=5, row_offset=3))
+        second = self.client.get(self._url(row_limit=5, row_offset=3))
+        self.assertEqual(
+            [row['id'] for row in first.data['rows']],
+            [row['id'] for row in second.data['rows']],
+        )
+
+
+class RowCreateOrderTestCase(APITestCase):
+    """RowViewSet.create asigna `order` incremental si el cliente no lo envía."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='row_create_user', password='password123')
+        content_type_row = ContentType.objects.get_for_model(Row)
+        self.add_row_perm = Permission.objects.get(codename='add_row', content_type=content_type_row)
+        self.user.user_permissions.add(self.add_row_perm)
+
+        self.table = Table.objects.create(name='Row Create Order Table')
+        self.tab = Tab.objects.create(table=self.table, name='Principal', label='Principal', order=0)
+        self.url = f'/api/tables/{self.table.id}/rows/'
+
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def test_create_without_order_on_empty_table_starts_at_zero(self):
+        response = self.client.post(self.url, {'name': 'Primera', 'data': {}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['order'], 0)
+
+    def test_create_without_order_uses_max_plus_one(self):
+        Row.objects.create(table=self.table, name='Existente', order=4)
+        response = self.client.post(self.url, {'name': 'Nueva', 'data': {}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['order'], 5)
+
+    def test_consecutive_creates_do_not_tie(self):
+        for i in range(3):
+            response = self.client.post(
+                self.url, {'name': f'Fila {i}', 'data': {}}, format='json')
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        orders = list(Row.objects.filter(table=self.table).values_list('order', flat=True))
+        self.assertEqual(sorted(orders), [0, 1, 2])
+
+    def test_create_with_explicit_order_is_preserved(self):
+        Row.objects.create(table=self.table, name='Existente', order=10)
+        response = self.client.post(
+            self.url, {'name': 'Explicita', 'data': {}, 'order': 2}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['order'], 2)
+
+

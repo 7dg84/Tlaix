@@ -16,7 +16,7 @@
 - [ ] Cuando se inicie sesion, refrescar
 - [X] Actualizar texto, lo hace cada que se actualiza algo, retrazar con un timer, para no sobrecargar la bd, cuando el elemento deje de estar activo o un segundo despues (Completado con CellEditor debounce 1s + onBlur)
 - [ ] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece
-- [ ] hacer un limit en el tabview para no realentizar las consultas, y manejarlo en el front end para consultar conforme se scrollea
+- [X] hacer un limit en el tabview para no realentizar las consultas, y manejarlo en el front end para consultar conforme se scrollea (Completado: row_limit/row_offset + infinite scroll con IntersectionObserver)
 - [X] Crear un endpoint para subir varias filas y tabs al mismo tiempo (Completado: POST /api/tables/<table_id>/bulk/)
 - [X] Eliminar tables, tabs, columns (Completado con ConfirmDeleteDialog y actualización de estado reactivo en Index y TableView)
 - [ ] Dato datetime y time
