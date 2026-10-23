@@ -564,6 +564,34 @@ erDiagram
 - `PUT /api/tables/<table_id>/columns/<pk>/`
 - `DELETE /api/tables/<table_id>/columns/<pk>/`
 
+#### 4. Valores Completos de una Columna (modo revisión, 2026-10-23)
+- **Método**: `GET`
+- **Ruta**: `/api/tables/<table_id>/columns/<pk>/cellvalues/`
+- **Controlador**: `api.views.ColumnCellValuesView` (APIView)
+- **Seguridad**: `[IsAuthenticated, CompleteDjangoObjectPermissions]` con cookie `auth_token` o `Token`. Exige `view_table` por objeto en la tabla y `view_tab` por objeto en la pestaña de la columna.
+- **Descripción**: Devuelve **todas** las filas de la tabla (`order`, `created_at`, `id`) con el valor de la columna indicada. Sin paginación: no aplica el bloque de 50 filas de `TabView`. `value` es `null` si la celda no existe.
+- **Respuesta (200 OK)**:
+  ```json
+  {
+    "axis": "column",
+    "target": {
+      "id": "f51a4f02-a1b2-4c3d-8e4f-5a6b7c8d9e0f",
+      "name": "Estatus",
+      "type": "select",
+      "options": ["Activo", "Inactivo"],
+      "order": 2,
+      "is_required": false,
+      "tab_id": "e932bce1-d729-450a-8bf8-d8f99e3a35b1"
+    },
+    "items": [
+      { "row_id": "row-77b3", "row_name": "Pérez Juan", "order": 0, "value": "Activo" }
+    ],
+    "total": 120
+  }
+  ```
+- **Errores**: `401` sin autenticación; `403` sin `view_table`/`view_tab` por objeto; `404` si la tabla o la columna no existen o la columna no pertenece a la tabla.
+- **Contrato detallado**: `docs/api/review-cellvalues.md`.
+
 ---
 
 ### 4.5 Módulo de Filas
@@ -615,6 +643,36 @@ erDiagram
 - `GET /api/tables/<table_id>/rows/<pk>/`
 - `PUT /api/tables/<table_id>/rows/<pk>/`
 - `DELETE /api/tables/<table_id>/rows/<pk>/`
+
+#### 4. Valores Completos de una Fila (modo revisión, 2026-10-23)
+- **Método**: `GET`
+- **Ruta**: `/api/tables/<table_id>/rows/<pk>/cellvalues/?tab_id=<opcional>`
+- **Controlador**: `api.views.RowCellValuesView` (APIView)
+- **Seguridad**: `[IsAuthenticated, CompleteDjangoObjectPermissions]` con cookie `auth_token` o `Token`. Exige `view_table` por objeto en la tabla y `view_tab` por objeto en la pestaña.
+- **Descripción**: Devuelve todas las columnas de la pestaña (`order`, `id`) con el valor que la fila tiene en cada una. Sin paginación; `value` es `null` si la celda no existe. Si se omite `tab_id` se usa la primera pestaña de la tabla (`order`, `id`).
+- **Pestaña ausente**: si la tabla no tiene pestañas responde `200` con `items: []`, `total: 0` y `tab: null`.
+- **Respuesta (200 OK)**:
+  ```json
+  {
+    "axis": "row",
+    "target": { "id": "row-77b3", "name": "Cliente 3", "order": 2 },
+    "tab": { "id": "e932bce1-d729-450a-8bf8-d8f99e3a35b1", "name": "General", "label": "General" },
+    "items": [
+      {
+        "column_id": "f51a4f02-a1b2-4c3d-8e4f-5a6b7c8d9e0f",
+        "column_name": "Estatus",
+        "type": "select",
+        "options": ["Activo", "Inactivo"],
+        "order": 0,
+        "is_required": false,
+        "value": "Activo"
+      }
+    ],
+    "total": 8
+  }
+  ```
+- **Errores**: `401` sin autenticación; `403` sin `view_table`/`view_tab` por objeto; `404` si la tabla, la fila o la pestaña no existen o no pertenecen a la tabla indicada.
+- **Contrato detallado**: `docs/api/review-cellvalues.md`.
 
 ---
 

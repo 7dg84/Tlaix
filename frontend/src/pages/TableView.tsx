@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Loader2, Trash2, X } from "lucide-react";
+import { ArrowLeft, Loader2, ScanLine, Trash2, X } from "lucide-react";
 import { rowService, columnService, tabService, tableService, cellService, manageError } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,13 +15,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { AddColumnDialog, ColumnDefinition } from "@/components/AddColumnDialog";
 import { AddRowDialog } from "@/components/AddRowDialog";
 import { AddTabDialog, TabDefinition } from "@/components/AddTabDialog";
 import { Header } from "@/components/Header";
 import { CellEditor } from "@/components/CellEditor";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
+import { ReviewMode } from "@/components/ReviewMode";
+import type { ReviewAxis } from "@/lib/review";
 
 
 interface TableRow {
@@ -45,6 +47,13 @@ const TableView = () => {
   const [tabToDelete, setTabToDelete] = useState<TabDefinition | null>(null);
   const [columnToDelete, setColumnToDelete] = useState<ColumnDefinition | null>(null);
 
+  // Elemento que se está recorriendo en el modo revisión (fila o columna)
+  const [reviewTarget, setReviewTarget] = useState<{
+    axis: ReviewAxis;
+    id: string;
+    label: string;
+  } | null>(null);
+
   // Estado de paginación (carga por bloques)
   const [hasMoreRows, setHasMoreRows] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -57,6 +66,8 @@ const TableView = () => {
   const isInitialLoadRef = useRef(false);
   // Pestaña activa actual: permite validar el resultado de una carga ya iniciada
   const activeTabIdRef = useRef(activeTabId);
+  // Última versión renderizada de las filas: permite revertir un guardado fallido
+  const rowsRef = useRef<TableRow[]>([]);
 
   // Cargar datos al montar el componente
   useEffect(() => {
@@ -70,11 +81,12 @@ const TableView = () => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
-  // Mantener el recuento de filas sincronizado con lo renderizado: se usa como row_offset.
-  // Depende de `rows.length` para reflejar también altas y bajas de filas.
+  // Mantener sincronizadas las refs con lo renderizado: el recuento se usa como
+  // row_offset y la lista permite revertir un guardado optimista fallido.
   useEffect(() => {
     rowsCountRef.current = rows.length;
-  }, [rows.length]);
+    rowsRef.current = rows;
+  }, [rows]);
 
   const loadTabContent = async (tId: string, tabId: string) => {
     setIsLoading(true);
@@ -374,22 +386,53 @@ const TableView = () => {
     }
   };
 
-  const updateCellValue = async (rowId: string, columnId: string, parsedValue: any) => {
+  /**
+   * Actualiza la fila de forma optimista y persiste la celda.
+   * Lanza el error si el PUT falla para que quien llama decida si avanza o no.
+   */
+  const saveCell = async (rowId: string, columnId: string, value: any) => {
+    if (!tableId) {
+      throw new Error("No hay una tabla activa.");
+    }
+
+    const previousValue = rowsRef.current.find((row) => row.id === rowId)?.[columnId];
+
     setRows((prev) =>
       prev.map((row) =>
-        row.id === rowId ? { ...row, [columnId]: parsedValue } : row
+        row.id === rowId ? { ...row, [columnId]: value } : row
       )
     );
 
-    if (tableId) {
-      try {
-        await cellService.update(tableId, columnId, rowId, parsedValue);
-      } catch (error) {
-        manageError(error);
-        console.error("Error actualizando celda:", error);
-        toast.error("Error al guardar cambios en la API");
-      }
+    try {
+      await cellService.update(tableId, columnId, rowId, value);
+    } catch (error) {
+      // Revertir el valor optimista: la tabla debe reflejar lo que hay en la API
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === rowId ? { ...row, [columnId]: previousValue } : row
+        )
+      );
+      throw error;
     }
+  };
+
+  // Edición inline (CellEditor): mantiene el toast y no repropaga el error
+  const updateCellValue = async (rowId: string, columnId: string, parsedValue: any) => {
+    try {
+      await saveCell(rowId, columnId, parsedValue);
+    } catch (error) {
+      try {
+        manageError(error);
+      } catch {
+        // manageError asume que el error trae respuesta HTTP
+      }
+      console.error("Error actualizando celda:", error);
+      toast.error("Error al guardar cambios en la API");
+    }
+  };
+
+  const openReview = (axis: ReviewAxis, id: string, label: string) => {
+    setReviewTarget({ axis, id, label });
   };
 
   const handleConfirmDeleteTab = async () => {
@@ -503,14 +546,26 @@ const TableView = () => {
                         <th key={column.id} className="text-left p-4 font-semibold">
                           <div className="flex items-center justify-between gap-2">
                             <span>{column.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => setColumnToDelete(column)}
-                              className="hover:text-destructive hover:bg-destructive/10 rounded-full p-0.5 transition-colors text-muted-foreground"
-                              title="Eliminar columna"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openReview("column", column.id, column.name)}
+                                className="hover:text-foreground text-muted-foreground rounded-full p-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                                title={`Revisar columna ${column.name}`}
+                                aria-label={`Revisar columna ${column.name}`}
+                              >
+                                <ScanLine className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColumnToDelete(column)}
+                                className="hover:text-destructive hover:bg-destructive/10 rounded-full p-0.5 transition-colors text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                                title="Eliminar columna"
+                                aria-label={`Eliminar columna ${column.name}`}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </th>
                       ))}
@@ -523,7 +578,20 @@ const TableView = () => {
                         key={row.id}
                         className="border-b hover:bg-muted/30 transition-colors"
                       >
-                        <td className="p-4 font-medium">{row.name}</td>
+                        <td className="p-4 font-medium">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{row.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => openReview("row", row.id, row.name)}
+                              className="hover:text-foreground text-muted-foreground rounded-full p-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                              title={`Revisar fila ${row.name}`}
+                              aria-label={`Revisar fila ${row.name}`}
+                            >
+                              <ScanLine className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                         {columns.map((column) => (
                           <td key={column.id} className="p-4">
                             <CellEditor
@@ -582,6 +650,18 @@ const TableView = () => {
           description={`¿Estás seguro de que deseas eliminar la columna "${columnToDelete?.name || ""}"? Los datos de esta columna se perderán.`}
           onConfirm={handleConfirmDeleteColumn}
         />
+
+        {reviewTarget && tableId && (
+          <ReviewMode
+            axis={reviewTarget.axis}
+            tableId={tableId}
+            targetId={reviewTarget.id}
+            targetLabel={reviewTarget.label}
+            tabId={reviewTarget.axis === "row" ? activeTabId || undefined : undefined}
+            onSave={saveCell}
+            onClose={() => setReviewTarget(null)}
+          />
+        )}
       </main>
     </div>
   );

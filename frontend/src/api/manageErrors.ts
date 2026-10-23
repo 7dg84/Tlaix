@@ -1,7 +1,7 @@
 import { toast } from 'react-hot-toast';
 
 function manageError(error: any) {
-    if (error.response.staus == 502) toast.error("Error 502");
+    if (error.response?.status === 502) toast.error("Error 502");
     if (error.response) {
         // La solicitud se realizó y el servidor respondió con un código de estado
         // que está fuera del rango de 2xx

@@ -820,3 +820,140 @@ class TableBulkUploadView(APIView):
             # 'rows': RowSerializer(created_rows, many=True).data,
         }, status=status.HTTP_201_CREATED)
 
+
+# Endpoints de solo lectura para el "modo revisión" del frontend.
+# Devuelven el eje completo (sin paginación) con una sola consulta de celdas.
+#
+#   GET /api/tables/<table_id>/rows/<pk>/cellvalues/?tab_id=<opcional>
+#   GET /api/tables/<table_id>/columns/<pk>/cellvalues/
+
+
+class RowCellValuesView(APIView):
+    """
+    Devuelve todas las columnas de una pestaña con el valor que la fila
+    indicada tiene en cada una (``null`` si la celda no existe).
+
+    La pestaña se toma de ``?tab_id=``; si no viene, se usa la primera de la
+    tabla ordenada por ``order, id``. Una tabla sin pestañas responde 200 con
+    ``items: []`` para que el frontend no tenga que distinguir "vacío" de
+    "error".
+    """
+
+    permission_classes = [IsAuthenticated, CompleteDjangoObjectPermissions]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
+    queryset = Row.objects.all()
+
+    def get(self, request, table_id, pk):
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+
+        row = get_object_or_404(Row, id=pk, table=table)
+
+        tab_id = request.query_params.get('tab_id')
+        if tab_id:
+            tab = get_object_or_404(Tab, id=tab_id, table=table)
+        else:
+            tab = table.tabs.order_by('order', 'id').first()
+
+        target = {'id': str(row.id), 'name': row.name, 'order': row.order}
+
+        if tab is None:
+            return Response({
+                'axis': 'row',
+                'target': target,
+                'tab': None,
+                'items': [],
+                'total': 0,
+            }, status=status.HTTP_200_OK)
+
+        # Igual que TabView: ver la tabla no basta, también hay que poder ver
+        # la pestaña cuyas columnas se están exponiendo.
+        self.check_object_permissions(request, tab)
+
+        # Orden determinista: `order` puede empatar y sin desempate Postgres
+        # no garantiza el mismo orden entre peticiones.
+        columns = list(tab.columns.order_by('order', 'id'))
+        column_ids = [str(column.id) for column in columns]
+
+        # Una sola consulta de celdas + select_related('column') para que
+        # get_value() no dispare consultas por celda.
+        cells = CellValue.objects.filter(
+            row=row, column_id__in=column_ids
+        ).select_related('column')
+        values = {str(cell.column_id): cell.get_value() for cell in cells}
+
+        items = [{
+            'column_id': str(column.id),
+            'column_name': column.name,
+            'type': column.type,
+            'options': column.options,
+            'order': column.order,
+            'is_required': column.is_required,
+            'value': values.get(str(column.id)),
+        } for column in columns]
+
+        return Response({
+            'axis': 'row',
+            'target': target,
+            'tab': {'id': str(tab.id), 'name': tab.name, 'label': tab.label},
+            'items': items,
+            'total': len(items),
+        }, status=status.HTTP_200_OK)
+
+
+class ColumnCellValuesView(APIView):
+    """
+    Devuelve todas las filas de la tabla con el valor de la columna indicada
+    (``null`` si la celda no existe). Sin paginación: el modo revisión necesita
+    el eje completo aunque la tabla tenga más de un bloque de 50 filas.
+    """
+
+    permission_classes = [IsAuthenticated, CompleteDjangoObjectPermissions]
+    authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
+    queryset = Column.objects.all()
+
+    def get(self, request, table_id, pk):
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+
+        column = get_object_or_404(
+            Column.objects.select_related('tab'), id=pk, tab__table=table
+        )
+        self.check_object_permissions(request, column.tab)
+
+        # Mismo orden determinista que TabView: order -> created_at -> id.
+        rows = list(table.rows.order_by('order', 'created_at', 'id'))
+
+        # Una sola consulta de celdas: filtrar por `row__table` evita
+        # materializar los ids de las filas. No hace falta `select_related`
+        # porque `get_value()` solo usa `column`, que ya está en memoria.
+        cells = CellValue.objects.filter(column=column, row__table=table)
+        # Asignar la columna a cada celda evita que get_value() consulte
+        # `cell.column` una vez por fila (N+1).
+        values = {}
+        for cell in cells:
+            cell.column = column
+            values[str(cell.row_id)] = cell.get_value()
+
+        items = [{
+            'row_id': str(row.id),
+            'row_name': row.name,
+            'order': row.order,
+            'value': values.get(str(row.id)),
+        } for row in rows]
+
+        return Response({
+            'axis': 'column',
+            'target': {
+                'id': str(column.id),
+                'name': column.name,
+                'type': column.type,
+                'options': column.options,
+                'order': column.order,
+                'is_required': column.is_required,
+                'tab_id': str(column.tab_id),
+            },
+            'items': items,
+            'total': len(items),
+        }, status=status.HTTP_200_OK)
+

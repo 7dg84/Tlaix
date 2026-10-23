@@ -1,8 +1,12 @@
 from django.contrib.auth.models import User, Permission
 from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework.authtoken.models import Token
 import datetime
 from api.models import Table, Tab, Column, Row, CellValue
 from guardian.shortcuts import assign_perm, get_perms
@@ -1024,5 +1028,427 @@ class RowCreateOrderTestCase(APITestCase):
             self.url, {'name': 'Explicita', 'data': {}, 'order': 2}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['order'], 2)
+
+
+class RowCellValuesViewTestCase(APITestCase):
+    """
+    GET /api/tables/<table_id>/rows/<pk>/cellvalues/ (modo revisión).
+
+    Devuelve todas las columnas de la pestaña con el valor de la fila, sin
+    paginación y con orden determinista `order, id`.
+    """
+
+    COLUMN_SPECS = [
+        ('Texto', 'text', None, 'Hola mundo'),
+        ('Entero', 'int', None, 42),
+        ('Decimal', 'float', None, 3.5),
+        ('Activo', 'checkbox', None, True),
+        ('Estado', 'select', ['Activo', 'Inactivo', 'Baja'], 'Activo'),
+        ('Fecha', 'date', None, '2026-10-15'),
+    ]
+
+    # 6 columnas base + 54 extra = 60 columnas en la prueba de N+1.
+    EXTRA_COLUMNS = 54
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='row_cells_user', password='password123')
+        self.outsider = User.objects.create_user(
+            username='row_cells_outsider', password='password123')
+
+        self.table = Table.objects.create(
+            name='Review Row Table', description='Modo revisión')
+        self.tab = Tab.objects.create(
+            table=self.table, name='General', label='General', order=0)
+        self.second_tab = Tab.objects.create(
+            table=self.table, name='Extra', label='Extra', order=5)
+
+        self.columns = [
+            Column.objects.create(
+                tab=self.tab, name=name, type=column_type,
+                options=options, order=index)
+            for index, (name, column_type, options, _value) in enumerate(self.COLUMN_SPECS)
+        ]
+
+        self.row = Row.objects.create(
+            table=self.table, name='Cliente 3', order=2)
+        self.empty_row = Row.objects.create(
+            table=self.table, name='Cliente 4', order=3)
+
+        for column, (_name, _type, _options, value) in zip(self.columns, self.COLUMN_SPECS):
+            cell = CellValue.objects.create(row=self.row, column=column)
+            cell.set_value(value)
+            cell.save()
+
+        # Objetos de otra tabla: sirven para validar los 404 por pertenencia
+        other_table = Table.objects.create(name='Review Row Other Table')
+        self.other_tab = Tab.objects.create(
+            table=other_table, name='General', label='General', order=0)
+        self.other_row = Row.objects.create(
+            table=other_table, name='Ajena', order=0)
+
+    def _url(self, row_id, table_id=None, **params):
+        url = reverse('row_cellvalues', kwargs={
+            'table_id': str(table_id or self.table.id),
+            'pk': str(row_id),
+        })
+        if params:
+            query = '&'.join(f'{key}={value}' for key, value in params.items())
+            url = f'{url}?{query}'
+        return url
+
+    def _authenticate(self, view_tab=True):
+        assign_perm('view_table', self.user, self.table)
+        if view_tab:
+            assign_perm('view_tab', self.user, self.tab)
+            assign_perm('view_tab', self.user, self.second_tab)
+        # Refrescar el usuario limpia la caché de permisos de guardian
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def test_returns_all_columns_with_values_for_every_type(self):
+        """200 con todas las columnas de la pestaña y un valor por tipo."""
+        self._authenticate()
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['axis'], 'row')
+        self.assertEqual(response.data['total'], len(self.COLUMN_SPECS))
+        self.assertEqual(len(response.data['items']), len(self.COLUMN_SPECS))
+
+        items = {item['column_name']: item for item in response.data['items']}
+        self.assertEqual(items['Texto']['value'], 'Hola mundo')
+        self.assertEqual(items['Entero']['value'], 42)
+        self.assertIsInstance(items['Entero']['value'], int)
+        self.assertAlmostEqual(items['Decimal']['value'], 3.5)
+        self.assertIsInstance(items['Decimal']['value'], float)
+        self.assertIs(items['Activo']['value'], True)
+        self.assertEqual(items['Activo']['type'], 'checkbox')
+        self.assertEqual(items['Estado']['value'], 'Activo')
+        self.assertEqual(items['Estado']['type'], 'select')
+        self.assertEqual(items['Estado']['options'], ['Activo', 'Inactivo', 'Baja'])
+        self.assertEqual(items['Fecha']['value'], '2026-10-15')
+        self.assertEqual(items['Fecha']['type'], 'date')
+
+    def test_target_and_tab_payload(self):
+        """`target` describe la fila y `tab` la pestaña usada."""
+        self._authenticate()
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.data['target'], {
+            'id': str(self.row.id), 'name': 'Cliente 3', 'order': 2,
+        })
+        self.assertEqual(response.data['tab'], {
+            'id': str(self.tab.id), 'name': 'General', 'label': 'General',
+        })
+
+    def test_missing_cells_are_null(self):
+        """Las celdas que no existen se devuelven como `null` (no se omiten)."""
+        self._authenticate()
+        response = self.client.get(self._url(self.empty_row.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item['value'] for item in response.data['items']],
+            [None] * len(self.COLUMN_SPECS),
+        )
+        self.assertEqual(response.data['total'], len(self.COLUMN_SPECS))
+
+    def test_items_are_ordered_by_order_then_id_with_ties(self):
+        """Con `order` empatado, el desempate es `id` y el orden es estable."""
+        Column.objects.create(tab=self.tab, name='Empate A', type='text', order=0)
+        Column.objects.create(tab=self.tab, name='Empate B', type='text', order=0)
+        self._authenticate()
+
+        response = self.client.get(self._url(self.row.id))
+        expected = [
+            str(column.id) for column in
+            Column.objects.filter(tab=self.tab).order_by('order', 'id')
+        ]
+        self.assertEqual(
+            [item['column_id'] for item in response.data['items']], expected)
+
+        orders = [item['order'] for item in response.data['items']]
+        self.assertEqual(orders, sorted(orders))
+        # El primer bloque está formado por las columnas con order=0
+        self.assertEqual(orders.count(0), 3)
+
+    def test_does_not_scale_queries_with_column_count(self):
+        """El número de consultas no crece con las columnas (sin N+1)."""
+        self._authenticate()
+        # Petición de calentamiento: guardian cachea permisos por usuario.
+        self.client.get(self._url(self.row.id))
+
+        with CaptureQueriesContext(connection) as baseline:
+            baseline_response = self.client.get(self._url(self.row.id))
+        self.assertEqual(
+            len(baseline_response.data['items']), len(self.COLUMN_SPECS))
+
+        # Muchas más columnas y celdas para la misma fila.
+        extra_columns = [
+            Column.objects.create(
+                tab=self.tab, name=f'Extra {index}', type='text', order=100 + index)
+            for index in range(self.EXTRA_COLUMNS)
+        ]
+        for column in extra_columns:
+            cell = CellValue.objects.create(row=self.row, column=column)
+            cell.set_value('Valor extra')
+            cell.save()
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(self._url(self.row.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            len(response.data['items']),
+            len(self.COLUMN_SPECS) + self.EXTRA_COLUMNS)
+        self.assertEqual(
+            len(captured), len(baseline),
+            f'Las consultas crecieron con las columnas: '
+            f'{len(baseline)} -> {len(captured)}')
+        self.assertLess(
+            len(captured), 20,
+            f'Se esperaban pocas consultas, se ejecutaron {len(captured)}')
+
+        # Las columnas nuevas también llegan con su valor (no solo el conteo).
+        items = {item['column_id']: item for item in response.data['items']}
+        for column in extra_columns:
+            self.assertEqual(items[str(column.id)]['value'], 'Valor extra')
+
+    def test_explicit_tab_id_returns_only_that_tab_columns(self):
+        """`?tab_id=` acota las columnas a la pestaña indicada."""
+        extra_column = Column.objects.create(
+            tab=self.second_tab, name='Solo Extra', type='text', order=0)
+        self._authenticate()
+
+        response = self.client.get(
+            self._url(self.row.id, tab_id=self.second_tab.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tab']['id'], str(self.second_tab.id))
+        self.assertEqual(
+            [item['column_id'] for item in response.data['items']],
+            [str(extra_column.id)],
+        )
+        self.assertIsNone(response.data['items'][0]['value'])
+        self.assertEqual(response.data['total'], 1)
+
+    def test_defaults_to_first_tab_by_order(self):
+        """Sin `tab_id` se usa la primera pestaña por `order, id`."""
+        Tab.objects.filter(id=self.second_tab.id).update(order=-1)
+        self._authenticate()
+
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tab']['id'], str(self.second_tab.id))
+
+    def test_table_without_tabs_returns_empty_payload(self):
+        """Una tabla sin pestañas responde 200 con `items: []` y `tab: null`."""
+        table = Table.objects.create(name='Review Empty Tabs Table')
+        row = Row.objects.create(table=table, name='Sin pestañas', order=0)
+        assign_perm('view_table', self.user, table)
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self._url(row.id, table_id=table.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['axis'], 'row')
+        self.assertIsNone(response.data['tab'])
+        self.assertEqual(response.data['items'], [])
+        self.assertEqual(response.data['total'], 0)
+
+    def test_tab_from_another_table_returns_404(self):
+        """Una pestaña de otra tabla no es válida aunque exista."""
+        self._authenticate()
+        response = self.client.get(
+            self._url(self.row.id, tab_id=self.other_tab.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_row_from_another_table_returns_404(self):
+        """Una fila de otra tabla responde 404 en la ruta de esta tabla."""
+        self._authenticate()
+        response = self.client.get(self._url(self.other_row.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_table_not_found_returns_404(self):
+        self._authenticate()
+        response = self.client.get(self._url(
+            self.row.id, table_id='00000000-0000-0000-0000-000000000000'))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_anonymous_returns_401(self):
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_user_without_permissions_returns_403(self):
+        self.client.force_authenticate(user=self.outsider)
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_user_with_table_permission_but_without_tab_permission_returns_403(self):
+        """Ver la tabla no basta: la pestaña también debe ser visible."""
+        self._authenticate(view_tab=False)
+        response = self.client.get(self._url(self.row.id))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_authenticates_with_token_header_and_auth_cookie(self):
+        """El endpoint acepta `Authorization: Token ...` y la cookie HTTPOnly."""
+        token = Token.objects.create(user=self.user)
+        assign_perm('view_table', self.user, self.table)
+        assign_perm('view_tab', self.user, self.tab)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        response_header = self.client.get(self._url(self.row.id))
+        self.assertEqual(response_header.status_code, status.HTTP_200_OK)
+
+        self.client.credentials()
+        self.client.cookies[settings.AUTH_TOKEN_COOKIE_NAME] = token.key
+        response_cookie = self.client.get(self._url(self.row.id))
+        self.assertEqual(response_cookie.status_code, status.HTTP_200_OK)
+
+
+class ColumnCellValuesViewTestCase(APITestCase):
+    """
+    GET /api/tables/<table_id>/columns/<pk>/cellvalues/ (modo revisión).
+
+    Devuelve todas las filas de la tabla (más de 50, sin paginación) con el
+    valor de la columna y orden determinista `order, created_at, id`.
+    """
+
+    ROWS = 120
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='col_cells_user', password='password123')
+        self.outsider = User.objects.create_user(
+            username='col_cells_outsider', password='password123')
+
+        self.table = Table.objects.create(
+            name='Review Column Table', description='Modo revisión')
+        self.tab = Tab.objects.create(
+            table=self.table, name='General', label='General', order=0)
+        self.column = Column.objects.create(
+            tab=self.tab, name='Estado', type='select',
+            options=['Activo', 'Inactivo'], order=2, is_required=True)
+        self.other_column = Column.objects.create(
+            tab=self.tab, name='Notas', type='text', order=3)
+
+        # `order` repartido en 5 valores: hay empates reales de orden.
+        self.rows = Row.objects.bulk_create([
+            Row(table=self.table, name=f'Cliente {index + 1}', order=index % 5)
+            for index in range(self.ROWS)
+        ])
+
+        # Solo las filas pares tienen celda: las impares deben salir en null.
+        for index, row in enumerate(self.rows):
+            if index % 2 == 0:
+                cell = CellValue.objects.create(row=row, column=self.column)
+                cell.set_value('Activo' if index % 4 == 0 else 'Inactivo')
+                cell.save()
+
+        other_table = Table.objects.create(name='Review Column Other Table')
+        other_tab = Tab.objects.create(
+            table=other_table, name='General', label='General', order=0)
+        self.other_table_column = Column.objects.create(
+            tab=other_tab, name='Estado', type='text', order=0)
+
+    def _url(self, column_id=None, table_id=None):
+        return reverse('column_cellvalues', kwargs={
+            'table_id': str(table_id or self.table.id),
+            'pk': str(column_id or self.column.id),
+        })
+
+    def _authenticate(self, view_tab=True):
+        assign_perm('view_table', self.user, self.table)
+        if view_tab:
+            assign_perm('view_tab', self.user, self.tab)
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def test_returns_every_row_without_pagination(self):
+        """Devuelve todas las filas aunque superen el bloque de 50 de TabView."""
+        self.assertGreater(self.ROWS, 50)
+        self._authenticate()
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['axis'], 'column')
+        self.assertEqual(response.data['total'], self.ROWS)
+        self.assertEqual(len(response.data['items']), self.ROWS)
+
+    def test_target_contains_column_metadata(self):
+        self._authenticate()
+        response = self.client.get(self._url())
+        self.assertEqual(response.data['target'], {
+            'id': str(self.column.id),
+            'name': 'Estado',
+            'type': 'select',
+            'options': ['Activo', 'Inactivo'],
+            'order': 2,
+            'is_required': True,
+            'tab_id': str(self.tab.id),
+        })
+
+    def test_values_match_cells_and_missing_cells_are_null(self):
+        self._authenticate()
+        response = self.client.get(self._url())
+        items = {item['row_id']: item for item in response.data['items']}
+        self.assertEqual(len(items), self.ROWS)
+
+        for index, row in enumerate(self.rows):
+            item = items[str(row.id)]
+            self.assertEqual(item['row_name'], row.name)
+            if index % 2:
+                self.assertIsNone(item['value'])
+            else:
+                self.assertEqual(
+                    item['value'], 'Activo' if index % 4 == 0 else 'Inactivo')
+
+    def test_rows_are_ordered_deterministically_when_order_ties(self):
+        """Con `order` empatado el orden es `order, created_at, id` y estable."""
+        self._authenticate()
+        response = self.client.get(self._url())
+
+        expected = [
+            str(row.id) for row in
+            Row.objects.filter(table=self.table).order_by('order', 'created_at', 'id')
+        ]
+        self.assertEqual(
+            [item['row_id'] for item in response.data['items']], expected)
+
+        orders = [item['order'] for item in response.data['items']]
+        self.assertEqual(orders, sorted(orders))
+        # Hay empates: menos valores distintos de `order` que de filas
+        self.assertLess(len(set(orders)), len(orders))
+
+        # Dos peticiones idénticas devuelven el mismo orden
+        second = self.client.get(self._url())
+        self.assertEqual(
+            [item['row_id'] for item in second.data['items']], expected)
+
+    def test_does_not_scale_queries_with_row_count(self):
+        """El número de consultas no crece con las filas (sin N+1)."""
+        self._authenticate()
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['items']), self.ROWS)
+        self.assertLess(
+            len(captured), 20,
+            f'Se esperaban pocas consultas, se ejecutaron {len(captured)}')
+
+    def test_column_from_another_table_returns_404(self):
+        self._authenticate()
+        response = self.client.get(self._url(column_id=self.other_table_column.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_anonymous_returns_401(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_user_without_permissions_returns_403(self):
+        self.client.force_authenticate(user=self.outsider)
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_user_with_table_permission_but_without_tab_permission_returns_403(self):
+        self._authenticate(view_tab=False)
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 

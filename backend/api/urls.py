@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     TableViewSet, ColumnViewSet, RowViewSet, TabViewSet,
     CellValueViewSet, TabView, TableBulkUploadView,
+    RowCellValuesView, ColumnCellValuesView,
     login, register, logout, user, login_clients
 )
 
@@ -20,6 +21,12 @@ urlpatterns = [
     #     Vista de tablas en un tab combinando filas y columnas, como una tabla de excel
     path('tables/tabview/<str:table_id>/<str:tab_id>/', TabView.as_view(), name='tab_view'),
     path('tables/<str:table_id>/bulk/', TableBulkUploadView.as_view(), name='table_bulk_upload'),
+    # Valores completos de una fila/columna (modo revisión). Deben ir antes de
+    # los detail de rows/columns para dejar clara la precedencia.
+    path('tables/<str:table_id>/rows/<str:pk>/cellvalues/',
+         RowCellValuesView.as_view(), name='row_cellvalues'),
+    path('tables/<str:table_id>/columns/<str:pk>/cellvalues/',
+         ColumnCellValuesView.as_view(), name='column_cellvalues'),
     path('tables/<str:table_id>/rows/',
          RowViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('tables/<str:table_id>/rows/<str:pk>/',

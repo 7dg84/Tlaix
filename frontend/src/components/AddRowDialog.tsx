@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 interface AddRowDialogProps {
   onAddRow: (name: string) => void;

@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 
 export type ColumnType = "text" | "checkbox" | "int" | "float" | "select" | "date";
 

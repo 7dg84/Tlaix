@@ -10,6 +10,14 @@ export interface CellUpdateResponse {
 }
 
 export const cellService = {
+  // Timeout explícito: si la red falla, el rechazo llega al panel de error del
+  // modo revisión en lugar de dejar el overlay bloqueado en "Guardando…".
   update: (tableId: string, columnId: string, rowId: string, value: any) =>
-    apiClient.put<CellUpdateResponse>(`/tables/cell/${tableId}/${columnId}/${rowId}/`, { value }).then(res => res.data),
+    apiClient
+      .put<CellUpdateResponse>(
+        `/tables/cell/${tableId}/${columnId}/${rowId}/`,
+        { value },
+        { timeout: 15000 }
+      )
+      .then(res => res.data),
 };
