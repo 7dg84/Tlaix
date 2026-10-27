@@ -24,6 +24,7 @@ import { CellEditor } from "@/components/CellEditor";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { ReviewMode } from "@/components/ReviewMode";
 import type { ReviewAxis } from "@/lib/review";
+import { isAuthError } from "@/lib/auth";
 
 
 interface TableRow {
@@ -129,9 +130,12 @@ const TableView = () => {
 
       toast.success("Contenido de pestaña cargado");
     } catch (error) {
-      manageError(error);
-      console.error("Error cargando contenido de pestaña:", error);
-      toast.error("No se pudo cargar el contenido de la pestaña.");
+      // Un 401 ya disparó la redirección al login: no duplicamos avisos
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error cargando contenido de pestaña:", error);
+        toast.error("No se pudo cargar el contenido de la pestaña.");
+      }
       // Sin offset válido, no reintentamos cargas incrementales
       hasMoreRowsRef.current = false;
       setHasMoreRows(false);
@@ -180,9 +184,11 @@ const TableView = () => {
       hasMoreRowsRef.current = more;
       setHasMoreRows(more);
     } catch (error) {
-      manageError(error);
-      console.error("Error cargando más filas:", error);
-      toast.error("No se pudieron cargar más filas.");
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error cargando más filas:", error);
+        toast.error("No se pudieron cargar más filas.");
+      }
     } finally {
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
@@ -251,14 +257,18 @@ const TableView = () => {
           setActiveTabId(defaultTab.id.toString());
           await loadTabContent(tableId, defaultTab.id.toString());
         } catch (tabErr) {
-          console.error("Error creando pestaña por defecto:", tabErr);
-          toast.error("Esta tabla no tiene pestañas configuradas.");
+          if (!isAuthError(tabErr)) {
+            console.error("Error creando pestaña por defecto:", tabErr);
+            toast.error("Esta tabla no tiene pestañas configuradas.");
+          }
         }
       }
     } catch (error) {
-      manageError(error);
-      console.error("Error cargando datos:", error);
-      toast.error("No se pudo conectar con la API.");
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error cargando datos:", error);
+        toast.error("No se pudo conectar con la API.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -298,45 +308,54 @@ const TableView = () => {
         setRows((prev) => [...prev, newRow]);
         toast.success("Fila creada correctamente");
       } catch (error) {
-        manageError(error);
-        console.error("Error creando fila:", error);
-        toast.error("Error al guardar la fila en la API.");
+        if (!isAuthError(error)) {
+          manageError(error);
+          console.error("Error creando fila:", error);
+          toast.error("Error al guardar la fila en la API.");
+        }
       }
     }
   };
 
-  const handleAddColumn = async (column: ColumnDefinition) => {
-    if (tableId) {
-      try {
-        const createdColumn = await columnService.create(tableId, {
-          table_id: tableId,
-          tab_id: activeTabId,
-          name: column.name,
-          type: column.type,
-          options: column.options || [],
-          order: columns.length,
-        });
+  /**
+   * Crea la columna en la API. Devuelve `true` solo si se guardó, para que el
+   * diálogo se cierre únicamente con una creación confirmada.
+   */
+  const handleAddColumn = async (column: ColumnDefinition): Promise<boolean> => {
+    if (!tableId) return false;
 
-        const newColumn: ColumnDefinition = {
-          id: createdColumn.id.toString(),
-          name: createdColumn.name,
-          type: createdColumn.type as any,
-          options: createdColumn.options,
-        };
+    try {
+      const createdColumn = await columnService.create(tableId, {
+        table_id: tableId,
+        tab_id: activeTabId,
+        name: column.name,
+        type: column.type,
+        options: column.options || [],
+        order: columns.length,
+      });
 
-        setColumns([...columns, newColumn]);
+      const newColumn: ColumnDefinition = {
+        id: createdColumn.id.toString(),
+        name: createdColumn.name,
+        type: createdColumn.type as any,
+        options: createdColumn.options,
+      };
 
-        setRows(rows.map((row) => ({
-          ...row,
-          [newColumn.id]: newColumn.type === "checkbox" ? false : "",
-        })));
+      setColumns([...columns, newColumn]);
 
-        toast.success("Columna creada correctamente");
-      } catch (error) {
+      setRows(rows.map((row) => ({
+        ...row,
+        [newColumn.id]: newColumn.type === "checkbox" ? false : "",
+      })));
+
+      toast.success("Columna creada correctamente");
+      return true;
+    } catch (error) {
+      if (!isAuthError(error)) {
         manageError(error);
         console.error("Error creando columna:", error);
-        toast.error("Error al guardar en la API. Agregando localmente.");
       }
+      return false;
     }
   };
 
@@ -365,9 +384,11 @@ const TableView = () => {
           await loadTabContent(tableId, newTab.id);
         }
       } catch (error) {
-        manageError(error);
-        console.error("Error creando pestaña:", error);
-        toast.error("Error al guardar en la API. Agregando localmente.");
+        if (!isAuthError(error)) {
+          manageError(error);
+          console.error("Error creando pestaña:", error);
+          toast.error("Error al guardar en la API. Agregando localmente.");
+        }
       }
     }
   };
@@ -379,8 +400,10 @@ const TableView = () => {
         setRows(rows.filter((row) => row.id !== id));
         toast.success("Fila eliminada correctamente");
       } catch (error) {
-        manageError(error);
-        console.error("Error eliminando fila:", error);
+        if (!isAuthError(error)) {
+          manageError(error);
+          console.error("Error eliminando fila:", error);
+        }
         // setRows(rows.filter((row) => row.id !== id));
       }
     }
@@ -421,6 +444,7 @@ const TableView = () => {
     try {
       await saveCell(rowId, columnId, parsedValue);
     } catch (error) {
+      if (isAuthError(error)) return;
       try {
         manageError(error);
       } catch {
@@ -455,9 +479,11 @@ const TableView = () => {
       }
       toast.success("Pestaña eliminada correctamente");
     } catch (error) {
-      manageError(error);
-      console.error("Error eliminando pestaña:", error);
-      toast.error("Error al eliminar la pestaña.");
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error eliminando pestaña:", error);
+        toast.error("Error al eliminar la pestaña.");
+      }
     } finally {
       setTabToDelete(null);
     }
@@ -478,9 +504,11 @@ const TableView = () => {
       );
       toast.success("Columna eliminada correctamente");
     } catch (error) {
-      manageError(error);
-      console.error("Error eliminando columna:", error);
-      toast.error("Error al eliminar la columna.");
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error eliminando columna:", error);
+        toast.error("Error al eliminar la columna.");
+      }
     } finally {
       setColumnToDelete(null);
     }
@@ -495,7 +523,10 @@ const TableView = () => {
       <main className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <div className="flex gap-2">
-            <AddColumnDialog onAddColumn={handleAddColumn} />
+            <AddColumnDialog
+              onAddColumn={handleAddColumn}
+              existingNames={columns.map((column) => column.name)}
+            />
             <AddRowDialog onAddRow={handleAddRow} />
           </div>
           <AddTabDialog onAddTab={handleAddTab} />

@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { reviewService } from "@/api";
+import { isAuthError } from "@/lib/auth";
 import type { ColumnType } from "@/components/AddColumnDialog";
 import {
   buildColumnReviewItems,
@@ -418,7 +419,10 @@ export const ReviewMode = ({
       failedSaveRef.current = { value, advance };
       setDraft(valueToDraft(current.type, current.value));
       setSaveError(describeSaveError(error));
-      toast.error(describeSaveError(error));
+      // Un 401 ya disparó la redirección global al login: el toast es redundante
+      if (!isAuthError(error)) {
+        toast.error(describeSaveError(error));
+      }
       // El foco estaba en "Reintentar": al volver a fallar el panel se remonta y
       // el elemento enfocado desaparece. Se devuelve el foco al editor en el
       // frame siguiente (ya repintado) para no perder el teclado.
@@ -484,9 +488,9 @@ export const ReviewMode = ({
       onClose();
       return;
     }
-    // Sesión expirada: no tiene sentido quedarse bloqueado dentro del overlay
+    // Sesión expirada: el interceptor global ya lleva al login; solo cerramos
+    // el overlay para no bloquear la navegación
     if (saveErrorStatusRef.current === 401) {
-      toast.error("Tu sesión expiró. Vuelve a iniciar sesión.");
       onClose();
     }
   };

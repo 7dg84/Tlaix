@@ -1,19 +1,47 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { toast } from 'react-hot-toast';
-import { loginApi, logoutApi, registerApi, recoverApi, getCurrentUser } from '../api/users'
+import { loginApi, logoutApi, registerApi, recoverApi, getCurrentUser } from '../api/users';
+import { isAuthError } from '../lib/auth';
 
-export const AuthContext = createContext({
-    isLoggedIn: false,
-    user: null as any,
-    login: (payload: { email: string, password: any }) => { succes: Boolean },
-    logout: () => { },
-    register: (payload: { username: string, email: string, password: string }) => { succes: Boolean },
-    recover: (payload: { email: string }) => { succes: Boolean }
-});
+export interface AuthUser {
+    id?: string | number;
+    username: string;
+    email?: string;
+    [key: string]: unknown;
+}
+
+export interface LoginPayload {
+    email: string;
+    password: string;
+}
+
+export interface RegisterPayload {
+    username: string;
+    email: string;
+    password: string;
+}
+
+export interface RecoverPayload {
+    email: string;
+}
+
+export interface AuthContextValue {
+    isLoggedIn: boolean;
+    /** `false` hasta que la sonda `getCurrentUser()` termina: evita redirigir antes de saber si hay cookie. */
+    isAuthReady: boolean;
+    user: AuthUser | null;
+    login: (payload: LoginPayload) => Promise<boolean>;
+    logout: () => Promise<boolean>;
+    register: (payload: RegisterPayload) => Promise<boolean>;
+    recover: (payload: RecoverPayload) => Promise<boolean>;
+}
+
+export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [user, setUser] = useState<any>(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [user, setUser] = useState<AuthUser | null>(null);
 
     // Check if user is logged in on mount via HTTPOnly cookie
     useEffect(() => {
@@ -27,31 +55,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setUser(res.data);
                     localStorage.setItem('username', res.data.username);
                 }
-            } catch (err) {
+            } catch {
                 // Not logged in or error; ensure state cleared
+                if (!mounted) return;
                 setIsLoggedIn(false);
                 setUser(null);
                 localStorage.removeItem('username');
+            } finally {
+                if (mounted) setIsAuthReady(true);
             }
         };
         checkUser();
         return () => { mounted = false };
     }, []);
 
-    const login = async (data: []) => {
+    const login = async ({ email, password }: LoginPayload): Promise<boolean> => {
         try {
-            const res = await loginApi(data); // axios POST with credentials
+            const res = await loginApi({ email, password }); // axios POST with credentials
             // Backend returns user object; cookie set via Set-Cookie HTTPOnly
-            const user = res.data.user || res.data;
-            console.log(user);
-            if (user) {
-                localStorage.setItem('username', user.username);
-                setIsLoggedIn(true);
-                setUser(user);
+            const loggedUser: AuthUser | undefined = res.data?.user || res.data;
+            if (!loggedUser) {
+                toast.error('No se pudo verificar la sesión');
+                return false;
             }
+            localStorage.setItem('username', loggedUser.username);
+            setIsLoggedIn(true);
+            setUser(loggedUser);
             toast.success('Inicio de sesión correcto');
             return true;
-        } catch (err: any) {
+        } catch (err) {
             if (err.response) {
                 const { status, data: respData } = err.response;
                 if (status === 404) toast.error('Usuario no encontrado');
@@ -70,30 +102,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
                 toast.error('Error de red o sin respuesta del servidor');
             }
-            console.error(err);
+            console.error(
+                'Error al iniciar sesión. Status:',
+                err?.response?.status ?? 'sin respuesta'
+            );
             return false;
         }
     };
 
-    const logout = async () => {
+    const logout = async (): Promise<boolean> => {
         try {
             await logoutApi(); // No need to pass token, it's in cookies
-            setIsLoggedIn(false)
-            localStorage.removeItem('username');
-            setUser(null);
-            // Cookie is deleted automatically by backend
         } catch (error) {
-            toast.error('Error en el cierre de sesion.')
-            console.error('Error during logout:', error);
+            // Si la cookie sigue viva no fingimos un cierre que no ocurrió
+            if (!isAuthError(error)) {
+                const status =
+                    (error as { response?: { status?: number } })?.response?.status ??
+                    'sin respuesta';
+                console.error('Error al cerrar sesión. Status:', status);
+                toast.error('No se pudo cerrar la sesión. Inténtalo de nuevo.');
+                return false;
+            }
+            // Un 401 significa que la sesión ya no existe en el backend
         }
+
+        setIsLoggedIn(false);
+        setUser(null);
+        localStorage.removeItem('username');
+        return true;
     };
 
-    const register = async (data: []) => {
+    const register = async (data: RegisterPayload): Promise<boolean> => {
         try {
-            const res = await registerApi(data);
+            await registerApi(data);
             toast.success('Cuenta creada exitosamente Ya puedes iniciar sesión');
             return true;
-        } catch (err: any) {
+        } catch (err) {
             if (err.response) {
                 const { status, data: respData } = err.response;
                 if (status === 404) toast.error('Error 404');
@@ -101,7 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 else if (status === 400) {
                     // posible objeto de validación: { email: ["..."], password: ["..."] }
                     if (typeof respData === 'object') {
-                        let msgs = "Error en:\n" + Object.keys(respData).flat().join(' - ') + '\n' + Object.values(respData).flat().join(' - ')
+                        const msgs = "Error en:\n" + Object.keys(respData).flat().join(' - ') + '\n' + Object.values(respData).flat().join(' - ')
                         toast.error(msgs || 'Error de validación (400)');
                     } else {
                         toast.error(respData?.message || 'Solicitud inválida (400)');
@@ -112,19 +156,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
                 toast.error('Error de red o sin respuesta del servidor');
             }
-            console.error(err)
+            console.error(
+                'Error al registrar la cuenta. Status:',
+                err?.response?.status ?? 'sin respuesta'
+            );
+            return false;
         }
-        return false;
     }
 
-    const recover = async (data: []) => {
+    const recover = async (data: RecoverPayload): Promise<boolean> => {
         try {
-            const res = await recoverApi(data); // axios POST
+            await recoverApi(data); // axios POST
 
-            toast.success('Correo de recuperacion enviado');
+            toast.success('Correo de recuperación enviado');
 
             return true;
-        } catch (err: any) {
+        } catch (err) {
             if (err.response) {
                 const { status, data: respData } = err.response;
                 if (status === 404) toast.error('Usuario no encontrado');
@@ -143,19 +190,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
                 toast.error('Error de red o sin respuesta del servidor');
             }
-            console.error(err);
+            console.error(
+                'Error al solicitar la recuperación. Status:',
+                err?.response?.status ?? 'sin respuesta'
+            );
+            return false;
         }
-        return false;
     }
 
     return (
-        <AuthContext.Provider value={{ isLoggedIn, user, login, logout, register, recover }}>
+        <AuthContext.Provider value={{ isLoggedIn, isAuthReady, user, login, logout, register, recover }}>
             {children}
         </AuthContext.Provider>
     );
-
-
 };
-export const useAuth = () => {
-    return useContext(AuthContext);
-}
+
+export const useAuth = (): AuthContextValue => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth debe usarse dentro de AuthProvider');
+    }
+    return context;
+};

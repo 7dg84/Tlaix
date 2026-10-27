@@ -14,6 +14,7 @@ services:
       - internal_net
 
   django:
+    # image: 7dg84/tlaix-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -35,6 +36,7 @@ services:
       - internal_net
 
   react:
+    # image: 7dg84/tlaix-frontend:latest
     build:
       context: ./frontend
     ports:

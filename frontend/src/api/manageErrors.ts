@@ -1,6 +1,10 @@
 import { toast } from 'react-hot-toast';
+import { isAuthError } from '../lib/auth';
 
 function manageError(error: any) {
+    // Un 401 ya disparó la redirección global al login: no duplicamos toasts ni logs
+    if (isAuthError(error)) return;
+
     if (error.response?.status === 502) toast.error("Error 502");
     if (error.response) {
         // La solicitud se realizó y el servidor respondió con un código de estado

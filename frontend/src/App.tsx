@@ -7,6 +7,7 @@ import TableView from "./pages/TableView";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import { AuthProvider } from "./context/AuthContext";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -17,9 +18,11 @@ const App = () => (
         <Toaster position="top-right" />
         <BrowserRouter>
             <Routes>
-              <Route path="/" element={<Index />} />
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/table/:tableId" element={<TableView />} />
+              </Route>
               <Route path="/login" element={<Login />} />
-              <Route path="/table/:tableId" element={<TableView />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

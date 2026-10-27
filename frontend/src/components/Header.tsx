@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, showBackLink })
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const success = await login({ email, password } as any);
+      const success = await login({ email, password });
       if (success) {
         setIsOpen(false);
         setEmail('');
@@ -42,8 +42,12 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, showBackLink })
   };
 
   const handleLogout = async () => {
-    await logout();
+    const success = await logout();
+    // Si la API no pudo cerrar la sesión, la cookie sigue viva: no navegamos
+    if (!success) return;
     setIsOpen(false);
+    // Recarga completa al login: limpia el estado en memoria y las consultas
+    window.location.assign('/login');
   };
 
   return (

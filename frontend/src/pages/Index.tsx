@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { toast } from "react-hot-toast";
-import { getTables, createTable, deleteTable, tableService, tabService, rowService } from '../api';
+import { getTables, createTable, deleteTable, tableService, tabService } from '../api';
 import { manageError } from '../api/manageErrors';
+import { isAuthError } from '@/lib/auth';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -21,11 +22,13 @@ const Index = () => {
   const loadTables = async () => {
     try {
       const res = await getTables();
-      console.log(res.data);
       setTables(res.data);
     } catch (error) {
-      console.error("Error loading tables:", error);
-      manageError(error);
+      // Un 401 ya disparó la redirección al login: no duplicamos avisos
+      if (!isAuthError(error)) {
+        console.error("Error loading tables:", error);
+        manageError(error);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -36,7 +39,6 @@ const Index = () => {
   }, []);
 
   const handleCreateTable = async (tableData: any) => {
-    console.log(tableData);
     let newTable = null;
     // Save table via API
     try {
@@ -45,7 +47,6 @@ const Index = () => {
         description: tableData.description,
         icon: "Database",
       });
-      console.log("Tabla creada:", resTable.data);
       newTable = resTable.data;
 
       if (resTable.status === 201) {
@@ -54,6 +55,7 @@ const Index = () => {
 
       toast.success(`La tabla "${newTable.name}" se creó exitosamente`);
     } catch (error) {
+      if (isAuthError(error)) return;
       console.error("Error al crear tabla:", error);
       manageError(error);
       return;
@@ -81,14 +83,15 @@ const Index = () => {
         rows: rowsToCreate,
       });
 
-      console.log("Carga masiva completada:", bulkRes);
       if (rowsToCreate.length > 0) {
         toast.success(`Se crearon ${bulkRes.rows_count} filas y ${bulkRes.tabs_count} pestañas para "${newTable.name}"`);
       }
     } catch (error) {
-      console.error("Error al crear pestañas y filas en lote:", error);
-      manageError(error);
-      toast.error("Hubo un problema al crear las pestañas o filas iniciales.");
+      if (!isAuthError(error)) {
+        console.error("Error al crear pestañas y filas en lote:", error);
+        manageError(error);
+        toast.error("Hubo un problema al crear las pestañas o filas iniciales.");
+      }
     }
   };
 
@@ -100,9 +103,11 @@ const Index = () => {
       toast.success(`La tabla "${tableToDelete.name}" se eliminó exitosamente`);
       setTableToDelete(null);
     } catch (error) {
-      console.error("Error al eliminar tabla:", error);
-      manageError(error);
-      toast.error("Hubo un problema al eliminar la tabla.");
+      if (!isAuthError(error)) {
+        console.error("Error al eliminar tabla:", error);
+        manageError(error);
+        toast.error("Hubo un problema al eliminar la tabla.");
+      }
     }
   };
 
