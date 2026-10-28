@@ -689,6 +689,7 @@ const TableView = () => {
             targetId={reviewTarget.id}
             targetLabel={reviewTarget.label}
             tabId={reviewTarget.axis === "row" ? activeTabId || undefined : undefined}
+            columns={columns}
             onSave={saveCell}
             onClose={() => setReviewTarget(null)}
           />

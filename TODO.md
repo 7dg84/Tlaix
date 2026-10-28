@@ -37,5 +37,6 @@ X con cambio pendiente guarda y cierra; persistencia confirmada en los 6 tipos t
 - [X] E2E en navegador: login con credenciales inválidas muestra los toasts “Credenciales inválidas” y “Usuario no encontrado” con role="status"; 0 regiones de sonner en el DOM. (Verificado; el caso de calendario/401 muestra además «Credenciales incorrectas».)
 - [ ] Filtros en modo refision de orden
 - [ ] Editar name de row culumns tabs y tables
-- [ ] El modo revision en un modo por orden alfabetico ascendente o descendente y conforme a otras columnas y otro modo donde se pueda buscar el registro y editarlo
+- [X] El modo revision en un modo por orden alfabetico ascendente o descendente y conforme a otras columnas y otro modo donde se pueda buscar el registro y editarlo (Plan: `docs/plans/2026-10-27-modo-revision-orden-busqueda.md`; QA: `docs/qa/2026-10-27-modo-revision-orden-busqueda.md`)
+- [ ] Permisos granulares en nuevo endpoint de la api de /cellvalues/
 - [ ] 

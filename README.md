@@ -71,6 +71,29 @@ Una vez que los contenedores estén en ejecución, inicializa la base de datos:
 
 ---
 
+## Caché de Assets del Frontend
+
+`frontend/nginx.conf` aplica una política de caché diferenciada para evitar servir bundles
+obsoletos tras un despliegue:
+
+| Ruta | `Cache-Control` | Motivo |
+|---|---|---|
+| `/index.html` (y fallback SPA) | `no-store, no-cache, must-revalidate` | El HTML referencia los bundles con hash; nunca debe cachearse. |
+| `/assets/*` | `public, max-age=31536000, immutable` | Los nombres incluyen hash de contenido: si el contenido cambia, cambia la URL. |
+
+Los assets inexistentes bajo `/assets/` devuelven `404` (no caen al fallback SPA). El resto de
+rutas (`/`, `/api/`, `/media/`, `/admin/`, `/static/`) mantiene su comportamiento.
+
+Tras reconstruir el frontend, verifica la política con:
+
+```bash
+curl -I http://localhost/                              # Cache-Control: no-store, no-cache, must-revalidate
+curl -I http://localhost/assets/<bundle>.js            # Cache-Control: public, max-age=31536000, immutable
+curl -s http://localhost/ | grep -o 'assets/[^"]*'     # confirma el hash del bundle servido
+```
+
+---
+
 ## Perfiles Opcionales de Docker Compose
 
 El archivo `docker-compose.yml` admite perfiles adicionales para servicios auxiliares:
