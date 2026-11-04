@@ -1,24 +1,18 @@
 import axios from 'axios';
 import { API_BASE_URL } from './config';
-import {
-  buildLoginPath,
-  buildReturnTo,
-  shouldRedirectToLogin,
-} from '../lib/auth';
+import { shouldOpenLoginModal } from '../lib/auth';
+import { requestAuthModal } from '../lib/auth-modal';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true, // Habilita el envío automático del auth_token en cookies
 });
 
-// Guarda anti-bucle: una sola redirección al login por carga de página
-let isRedirectingToLogin = false;
-
 /**
  * Cualquier 401 de un endpoint autenticado significa sesión expirada:
- * se muestra el login de inmediato conservando la ruta solicitada.
- * Los endpoints de autenticación y la propia pantalla de login quedan excluidos
- * para que las credenciales inválidas se muestren en el formulario.
+ * se abre el modal global de login sin salir de la ruta actual.
+ * Los endpoints de autenticación quedan excluidos para que las credenciales
+ * inválidas se muestren en el propio formulario.
  */
 apiClient.interceptors.response.use(
   (response) => response,
@@ -29,20 +23,14 @@ apiClient.interceptors.response.use(
 
     if (
       hasWindow &&
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status,
         url,
         pathname: window.location.pathname,
-        alreadyRedirecting: isRedirectingToLogin,
       })
     ) {
-      isRedirectingToLogin = true;
       error.isAuthRedirect = true;
-
-      const returnTo = buildReturnTo(window.location);
-
-      // Recarga completa: limpia el estado en memoria y muestra el login de inmediato
-      window.location.assign(buildLoginPath(returnTo, true));
+      requestAuthModal('expired');
     }
 
     return Promise.reject(error);

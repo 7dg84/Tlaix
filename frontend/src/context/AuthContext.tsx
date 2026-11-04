@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { loginApi, logoutApi, registerApi, recoverApi, getCurrentUser } from '../api/users';
 import { isAuthError } from '../lib/auth';
@@ -30,6 +30,8 @@ export interface AuthContextValue {
     /** `false` hasta que la sonda `getCurrentUser()` termina: evita redirigir antes de saber si hay cookie. */
     isAuthReady: boolean;
     user: AuthUser | null;
+    /** Limpia la sesión local sin llamar al backend (por ejemplo, tras un 401). */
+    clearSession: () => void;
     login: (payload: LoginPayload) => Promise<boolean>;
     logout: () => Promise<boolean>;
     register: (payload: RegisterPayload) => Promise<boolean>;
@@ -42,6 +44,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [user, setUser] = useState<AuthUser | null>(null);
+
+    const clearSession = useCallback(() => {
+        setIsLoggedIn(false);
+        setUser(null);
+        localStorage.removeItem('username');
+    }, []);
 
     // Check if user is logged in on mount via HTTPOnly cookie
     useEffect(() => {
@@ -58,16 +66,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch {
                 // Not logged in or error; ensure state cleared
                 if (!mounted) return;
-                setIsLoggedIn(false);
-                setUser(null);
-                localStorage.removeItem('username');
+                clearSession();
             } finally {
                 if (mounted) setIsAuthReady(true);
             }
         };
         checkUser();
         return () => { mounted = false };
-    }, []);
+    }, [clearSession]);
 
     const login = async ({ email, password }: LoginPayload): Promise<boolean> => {
         try {
@@ -126,9 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Un 401 significa que la sesión ya no existe en el backend
         }
 
-        setIsLoggedIn(false);
-        setUser(null);
-        localStorage.removeItem('username');
+        clearSession();
         return true;
     };
 
@@ -199,7 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     return (
-        <AuthContext.Provider value={{ isLoggedIn, isAuthReady, user, login, logout, register, recover }}>
+        <AuthContext.Provider value={{ isLoggedIn, isAuthReady, user, clearSession, login, logout, register, recover }}>
             {children}
         </AuthContext.Provider>
     );

@@ -1,17 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, User, LogOut } from 'lucide-react';
+import { ArrowLeft, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useAuthModal } from '@/context/AuthModalContext';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 interface HeaderProps {
   title: string;
@@ -20,34 +12,15 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ title, subtitle, showBackLink }) => {
-  const { isLoggedIn, user, login, logout } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { isLoggedIn, user } = useAuth();
+  const { openLogin, openProfile } = useAuthModal();
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const success = await login({ email, password });
-      if (success) {
-        setIsOpen(false);
-        setEmail('');
-        setPassword('');
-      }
-    } finally {
-      setIsSubmitting(false);
+  const handleOpenAuth = () => {
+    if (isLoggedIn && user) {
+      openProfile();
+      return;
     }
-  };
-
-  const handleLogout = async () => {
-    const success = await logout();
-    // Si la API no pudo cerrar la sesión, la cookie sigue viva: no navegamos
-    if (!success) return;
-    setIsOpen(false);
-    // Recarga completa al login: limpia el estado en memoria y las consultas
-    window.location.assign('/login');
+    openLogin('login');
   };
 
   return (
@@ -67,74 +40,21 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, showBackLink })
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Botón de Perfil / Iniciar sesión */}
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="flex items-center gap-2 border-primary/20 hover:border-primary/50 transition-colors">
-                <User className="w-5 h-5 text-primary" />
-                {isLoggedIn && user ? (
-                  <span className="font-semibold hidden sm:inline-block max-w-[150px] truncate">{user.username}</span>
-                ) : (
-                  <span className="hidden sm:inline-block">Iniciar Sesión</span>
-                )}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold text-center">
-                  {isLoggedIn ? 'Perfil de Usuario' : 'Iniciar Sesión'}
-                </DialogTitle>
-              </DialogHeader>
-
-              {isLoggedIn && user ? (
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-muted-foreground">Nombre de usuario</p>
-                    <p className="text-lg font-medium p-3 bg-muted rounded-md border">{user.username}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-muted-foreground">Correo electrónico</p>
-                    <p className="text-lg font-medium p-3 bg-muted rounded-md border">{user.email || 'No proporcionado'}</p>
-                  </div>
-                  <Button variant="destructive" className="w-full flex items-center gap-2 mt-4 py-6 text-lg" onClick={handleLogout}>
-                    <LogOut className="w-5 h-5" />
-                    Cerrar Sesión
-                  </Button>
-                </div>
-              ) : (
-                <form onSubmit={handleLoginSubmit} className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Correo electrónico</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="correo@ejemplo.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className="py-6 text-base"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Contraseña</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="py-6 text-base"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full mt-4 py-6 text-lg" disabled={isSubmitting}>
-                    {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-                  </Button>
-                </form>
-              )}
-            </DialogContent>
-          </Dialog>
+          {/* Botón de Perfil / Iniciar sesión: abre el modal global */}
+          <Button
+            variant="outline"
+            className="flex items-center gap-2 border-primary/20 hover:border-primary/50 transition-colors"
+            onClick={handleOpenAuth}
+          >
+            <User className="w-5 h-5 text-primary" />
+            {isLoggedIn && user ? (
+              <span className="font-semibold hidden sm:inline-block max-w-[150px] truncate">
+                {user.username}
+              </span>
+            ) : (
+              <span className="hidden sm:inline-block">Iniciar Sesión</span>
+            )}
+          </Button>
         </div>
       </div>
     </header>

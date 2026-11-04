@@ -7,6 +7,7 @@ import TableView from "./pages/TableView";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import { AuthProvider } from "./context/AuthContext";
+import { AuthModalProvider } from "./context/AuthModalContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -14,20 +15,22 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster position="top-right" />
-        <BrowserRouter>
-            <Routes>
-              <Route element={<ProtectedRoute />}>
-                <Route path="/" element={<Index />} />
-                <Route path="/table/:tableId" element={<TableView />} />
-              </Route>
-              <Route path="/login" element={<Login />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <AuthModalProvider>
+        <TooltipProvider>
+          <Toaster position="top-right" />
+          <BrowserRouter>
+              <Routes>
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/table/:tableId" element={<TableView />} />
+                </Route>
+                <Route path="/login" element={<Login />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthModalProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

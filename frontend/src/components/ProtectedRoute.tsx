@@ -1,7 +1,9 @@
-import { Loader2 } from "lucide-react";
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { Loader2, LogIn } from "lucide-react";
+import { Outlet } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { buildLoginPath } from "@/lib/auth";
+import { useAuthModal } from "@/context/AuthModalContext";
+import { Button } from "@/components/ui/button";
 
 /** Loader a pantalla completa mientras se comprueba la sesión. */
 const FullPageLoader = () => (
@@ -14,20 +16,38 @@ const FullPageLoader = () => (
   </div>
 );
 
+/** Pantalla de fondo cuando no hay sesión; el formulario vive en el modal global. */
+const AuthRequiredScreen = () => {
+  const { openLogin } = useAuthModal();
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+      <p className="text-muted-foreground">Inicia sesión para continuar.</p>
+      <Button className="gap-2" onClick={() => openLogin("required")}>
+        <LogIn className="w-4 h-4" />
+        Iniciar sesión
+      </Button>
+    </div>
+  );
+};
+
 /**
  * Guarda de rutas privadas: espera la sonda de sesión y, si no hay cookie,
- * manda al login conservando la ruta solicitada (pathname + search + hash).
+ * muestra el fondo de acceso y abre el modal global de login.
  */
 export const ProtectedRoute = () => {
   const { isLoggedIn, isAuthReady } = useAuth();
-  const location = useLocation();
+  const { openLogin } = useAuthModal();
+
+  useEffect(() => {
+    if (isAuthReady && !isLoggedIn) {
+      openLogin("required");
+    }
+  }, [isAuthReady, isLoggedIn, openLogin]);
 
   if (!isAuthReady) return <FullPageLoader />;
 
-  if (!isLoggedIn) {
-    const returnTo = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate to={buildLoginPath(returnTo)} replace />;
-  }
+  if (!isLoggedIn) return <AuthRequiredScreen />;
 
   return <Outlet />;
 };

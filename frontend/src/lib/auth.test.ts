@@ -5,7 +5,7 @@ import {
   isAuthEndpoint,
   isAuthError,
   sanitizeReturnTo,
-  shouldRedirectToLogin,
+  shouldOpenLoginModal,
 } from "./auth";
 
 // Origen explícito para no depender del DOM: Vitest corre en Node.
@@ -81,7 +81,7 @@ describe("isAuthError", () => {
     expect(isAuthError({ response: { status: 400 } })).toBe(false);
   });
 
-  it("devuelve false si no hay respuesta ni marca de redirección", () => {
+  it("devuelve false si no hay respuesta ni marca del interceptor", () => {
     expect(isAuthError(undefined)).toBe(false);
     expect(isAuthError(null)).toBe(false);
     expect(isAuthError({})).toBe(false);
@@ -189,109 +189,89 @@ describe("buildLoginPath", () => {
   });
 });
 
-describe("shouldRedirectToLogin", () => {
-  it("redirige ante un 401 de un endpoint autenticado", () => {
+describe("shouldOpenLoginModal", () => {
+  it("abre el modal ante un 401 de un endpoint autenticado", () => {
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/tables/1/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(true);
   });
 
-  it("no redirige en los endpoints de autenticación", () => {
+  it("no abre el modal en los endpoints de autenticación", () => {
     // pathname fuera de /login: la exclusión viene de isAuthEndpoint
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/user/login/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/user/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/user/logout/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
   });
 
-  it("no redirige en el login sin barra final", () => {
+  it("no abre el modal en el login sin barra final", () => {
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/user/login",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
   });
 
-  it("no redirige si ya estamos en la pantalla de login", () => {
+  it("no abre el modal si ya estamos en la pantalla de login", () => {
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         url: "/tables/1/",
         pathname: "/login",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
   });
 
-  it("no redirige si ya hay una redirección en curso", () => {
+  it("no abre el modal ante errores que no son 401", () => {
     expect(
-      shouldRedirectToLogin({
-        status: 401,
-        url: "/tables/1/",
-        pathname: "/table/1",
-        alreadyRedirecting: true,
-      })
-    ).toBe(false);
-  });
-
-  it("no redirige ante errores que no son 401", () => {
-    expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 403,
         url: "/tables/1/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 400,
         url: "/tables/1/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         url: "/tables/1/",
         pathname: "/table/1",
-        alreadyRedirecting: false,
       })
     ).toBe(false);
   });
 
-  it("redirige si faltan la URL o el estado de redirección", () => {
+  it("abre el modal si faltan la URL o el estado", () => {
     // Defensivo: sin URL no se puede excluir un endpoint de auth.
     expect(
-      shouldRedirectToLogin({
+      shouldOpenLoginModal({
         status: 401,
         pathname: "/table/1",
       })

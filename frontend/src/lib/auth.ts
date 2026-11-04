@@ -48,7 +48,7 @@ interface AuthErrorLike {
   isAuthRedirect?: boolean;
 }
 
-/** `true` si el error es un 401 o ya disparó la redirección al login. */
+/** `true` si el error es un 401 o ya disparó la apertura del modal de login. */
 export function isAuthError(error: unknown): boolean {
   const candidate = error as AuthErrorLike | null | undefined;
   if (!candidate) return false;
@@ -109,27 +109,25 @@ export function buildLoginPath(returnTo: string, expired?: boolean): string {
   return `/login?${params.toString()}`;
 }
 
-interface RedirectDecision {
+interface LoginModalDecision {
   status?: number | null;
   url?: string | null;
   pathname?: string | null;
-  alreadyRedirecting?: boolean;
 }
 
 /**
- * Decide si un error debe provocar la redirección global al login.
- * Función pura para poder probar las exclusiones y la guarda anti-bucle.
+ * Decide si un error debe abrir el modal global de login.
+ * Solo el 401 indica sesión inválida; un 403 es un permiso denegado.
+ * Función pura para poder probar las exclusiones.
  */
-export function shouldRedirectToLogin({
+export function shouldOpenLoginModal({
   status,
   url,
   pathname,
-  alreadyRedirecting,
-}: RedirectDecision): boolean {
+}: LoginModalDecision): boolean {
   return (
     status === 401 &&
     !isAuthEndpoint(url) &&
-    !alreadyRedirecting &&
     pathname !== "/login"
   );
 }
