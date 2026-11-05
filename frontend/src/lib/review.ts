@@ -362,6 +362,53 @@ export function formatReviewValue(type: ColumnType, value: unknown): string {
   return String(value);
 }
 
+/** Línea que muestra la columna de orden y el valor congelado de la fila actual. */
+export interface ReviewSortDisplay {
+  columnName: string;
+  value: string;
+}
+
+/**
+ * Resuelve la línea de orden (`columna: valor`) para el registro actual.
+ * - `original` y `row-name` no tienen celda: devuelven `null`.
+ * - La columna revisada usa el nombre y el tipo del objetivo y su valor del mapa
+ *   congelado; sin mapa, cae al valor actual del ítem.
+ * - Otra columna toma nombre y tipo de `columns` y el valor del mapa congelado.
+ * - Una columna que no existe y no es la revisada devuelve `null`.
+ */
+export function resolveReviewSortDisplay(options: {
+  sortKey: ReviewSortKey;
+  rowId: string;
+  columns: ReviewColumn[];
+  valuesByRow?: Map<string, unknown> | null;
+  target: {
+    id: string;
+    name: string;
+    type: ColumnType;
+    value: unknown;
+  };
+}): ReviewSortDisplay | null {
+  const { sortKey, rowId, columns, valuesByRow, target } = options;
+  if (sortKey === "original" || sortKey === "row-name") return null;
+
+  // Columna revisada: no depende de que esté en la lista de columnas
+  if (sortKey === target.id) {
+    const value = valuesByRow ? valuesByRow.get(rowId) : target.value;
+    return {
+      columnName: target.name,
+      value: formatReviewValue(target.type, value),
+    };
+  }
+
+  const column = columns.find((candidate) => candidate.id === sortKey);
+  if (!column) return null;
+
+  return {
+    columnName: column.name,
+    value: formatReviewValue(column.type, valuesByRow?.get(rowId)),
+  };
+}
+
 /**
  * Filtra por subcadena normalizada el nombre de fila y el valor formateado de la
  * celda. Sin consulta devuelve todos los ítems conservando su índice original.

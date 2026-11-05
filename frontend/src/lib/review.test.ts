@@ -16,6 +16,7 @@ import {
   isSameValue,
   normalizeText,
   parseOptionNumber,
+  resolveReviewSortDisplay,
   searchReviewItems,
   sortReviewItems,
   valueToDraft,
@@ -779,6 +780,206 @@ describe("formatReviewValue", () => {
     expect(formatReviewValue("int", 42)).toBe("42");
     expect(formatReviewValue("float", 1.5)).toBe("1.5");
     expect(formatReviewValue("date", "2026-12-31")).toBe("2026-12-31");
+  });
+});
+
+describe("resolveReviewSortDisplay", () => {
+  /** Columna revisada por defecto: "Estado" de la fila actual. */
+  const estadoTarget = {
+    id: "col-estado",
+    name: "Estado",
+    type: "select" as const,
+    value: "Activo",
+  };
+
+  /** Columna revisada de tipo casilla, para comprobar el formato Sí/No. */
+  const activoTarget = {
+    id: "col-activo",
+    name: "Activo",
+    type: "checkbox" as const,
+    value: false,
+  };
+
+  it("devuelve null con el criterio Orden original", () => {
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "original",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", "Activo"]]),
+        target: estadoTarget,
+      })
+    ).toBeNull();
+  });
+
+  it("devuelve null con el criterio Nombre de fila", () => {
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "row-name",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", "Activo"]]),
+        target: estadoTarget,
+      })
+    ).toBeNull();
+  });
+
+  it("muestra la columna revisada con el valor congelado de valuesByRow", () => {
+    // El mapa manda sobre `target.value`: tras editar la celda, la línea sigue
+    // mostrando el valor usado para congelar el orden hasta pulsar Reordenar.
+    const result = resolveReviewSortDisplay({
+      sortKey: "col-estado",
+      rowId: "row-1",
+      columns: sortColumns,
+      valuesByRow: new Map([["row-1", "En revisión"]]),
+      target: estadoTarget,
+    });
+
+    expect(result).toEqual({ columnName: "Estado", value: "En revisión" });
+  });
+
+  it("usa target.value como respaldo de la columna revisada si no hay mapa", () => {
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-estado",
+        rowId: "row-1",
+        columns: sortColumns,
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Estado", value: "Activo" });
+
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-estado",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: null,
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Estado", value: "Activo" });
+  });
+
+  it("usa el nombre y el tipo del objetivo aunque la columna revisada no esté en columns", () => {
+    const result = resolveReviewSortDisplay({
+      sortKey: "col-otra",
+      rowId: "row-1",
+      columns: sortColumns,
+      valuesByRow: new Map([["row-1", "Valor congelado"]]),
+      target: {
+        id: "col-otra",
+        name: "Otra columna",
+        type: "text" as const,
+        value: null,
+      },
+    });
+
+    expect(result).toEqual({
+      columnName: "Otra columna",
+      value: "Valor congelado",
+    });
+  });
+
+  it("muestra otra columna con su valor de valuesByRow", () => {
+    const result = resolveReviewSortDisplay({
+      sortKey: "col-importe",
+      rowId: "row-1",
+      columns: sortColumns,
+      valuesByRow: new Map([["row-1", 12.5]]),
+      target: estadoTarget,
+    });
+
+    expect(result).toEqual({ columnName: "Importe", value: "12.5" });
+  });
+
+  it("muestra una raya cuando el valor de la columna está vacío", () => {
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-notas",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", null]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Notas", value: "—" });
+
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-notas",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", ""]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Notas", value: "—" });
+  });
+
+  it("muestra una raya cuando la fila no está en el mapa", () => {
+    // Columna revisada sin entrada para la fila actual
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-estado",
+        rowId: "row-9",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", "Activo"]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Estado", value: "—" });
+
+    // Otra columna sin entrada para la fila actual
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-notas",
+        rowId: "row-9",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", "Sin observaciones"]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Notas", value: "—" });
+  });
+
+  it("devuelve null para una columna inexistente que no es la revisada", () => {
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-inexistente",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", "Activo"]]),
+        target: estadoTarget,
+      })
+    ).toBeNull();
+  });
+
+  it("formatea una casilla como Sí/No", () => {
+    // Otra columna de tipo casilla
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-activo",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", true]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Activo", value: "Sí" });
+
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-activo",
+        rowId: "row-1",
+        columns: sortColumns,
+        valuesByRow: new Map([["row-1", false]]),
+        target: estadoTarget,
+      })
+    ).toEqual({ columnName: "Activo", value: "No" });
+
+    // Columna revisada de tipo casilla, usando el respaldo target.value
+    expect(
+      resolveReviewSortDisplay({
+        sortKey: "col-activo",
+        rowId: "row-2",
+        columns: sortColumns,
+        target: activoTarget,
+      })
+    ).toEqual({ columnName: "Activo", value: "No" });
   });
 });
 

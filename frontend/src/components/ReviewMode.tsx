@@ -38,6 +38,7 @@ import {
   formatReviewValue,
   isSameCellValue,
   parseOptionNumber,
+  resolveReviewSortDisplay,
   searchReviewItems,
   sortReviewItems,
   valueToDraft,
@@ -82,6 +83,12 @@ type ReviewSearchView = "list" | "edit";
 
 /** Destino tras guardar: mover, cerrar el overlay o quedarse en el editor. */
 type SaveAdvance = number | "close" | "stay";
+
+/** Orden calculado junto con los valores usados para congelarlo. */
+interface ComputedOrder {
+  order: ReviewItem[];
+  valuesByRow: Map<string, unknown> | null;
+}
 
 const TYPE_LABELS: Record<ColumnType, string> = {
   text: "Texto",
@@ -177,6 +184,9 @@ export const ReviewMode = ({
   const [sortLoading, setSortLoading] = useState(false);
   // Orden congelado: editar un valor no reordena hasta pulsar "Reordenar"
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
+  // Valores usados al congelar el orden, para mostrar la línea bajo "Fila:"
+  const [activeSortValues, setActiveSortValues] =
+    useState<Map<string, unknown> | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -256,6 +266,32 @@ export const ReviewMode = ({
     return columns.find((column) => column.id === sortKey)?.name ?? "Columna";
   }, [sortKey, columns]);
 
+  // Línea bajo "Fila:": columna de orden y valor congelado del registro actual.
+  // Solo aplica al revisar una columna y con un criterio que tenga celda.
+  const sortDisplay = useMemo(() => {
+    if (!isColumnAxis || !current) return null;
+    return resolveReviewSortDisplay({
+      sortKey,
+      rowId: current.rowId,
+      columns,
+      valuesByRow: activeSortValues,
+      target: {
+        id: targetId,
+        name: targetName,
+        type: current.type,
+        value: current.value,
+      },
+    });
+  }, [
+    isColumnAxis,
+    current,
+    sortKey,
+    columns,
+    activeSortValues,
+    targetId,
+    targetName,
+  ]);
+
   // ---------------------------------------------------------------- carga
   useEffect(() => {
     let cancelled = false;
@@ -265,6 +301,7 @@ export const ReviewMode = ({
     setItems([]);
     itemsRef.current = [];
     setOrderedIds([]);
+    setActiveSortValues(null);
     setIndex(0);
     setCompleted(false);
     setDraft(null);
@@ -765,14 +802,19 @@ export const ReviewMode = ({
     sourceItems: ReviewItem[],
     nextKey: ReviewSortKey,
     nextDirection: ReviewSortDirection
-  ): Promise<ReviewItem[] | null> => {
-    if (nextKey === "original") return [...sourceItems];
+  ): Promise<ComputedOrder | null> => {
+    if (nextKey === "original") {
+      return { order: [...sourceItems], valuesByRow: null };
+    }
     if (nextKey === "row-name") {
-      return sortReviewItems(sourceItems, {
-        sortKey: "row-name",
-        direction: nextDirection,
-        columns,
-      });
+      return {
+        order: sortReviewItems(sourceItems, {
+          sortKey: "row-name",
+          direction: nextDirection,
+          columns,
+        }),
+        valuesByRow: null,
+      };
     }
     if (!columns.some((column) => column.id === nextKey)) {
       // La columna revisada siempre se puede usar aunque falte en la lista
@@ -789,17 +831,36 @@ export const ReviewMode = ({
         ];
     const values = await ensureSortValues(nextKey, sourceItems);
     if (!values) return null;
-    return sortReviewItems(sourceItems, {
-      sortKey: nextKey,
-      direction: nextDirection,
-      columns: sortColumns,
+    return {
+      order: sortReviewItems(sourceItems, {
+        sortKey: nextKey,
+        direction: nextDirection,
+        columns: sortColumns,
+        valuesByRow: values,
+      }),
       valuesByRow: values,
-    });
+    };
   };
 
-  /** Congela el orden y conserva la fila actual si sigue existiendo. */
-  const applyOrder = (nextOrder: ReviewItem[]) => {
+  /**
+   * Congela el orden. Por defecto conserva la fila actual si sigue existiendo;
+   * con `resetToFirst` vuelve al primer registro (cambio de criterio).
+   */
+  const applyOrder = (
+    nextOrder: ReviewItem[],
+    options: {
+      resetToFirst?: boolean;
+      valuesByRow?: Map<string, unknown> | null;
+    } = {}
+  ) => {
     setOrderedIds(nextOrder.map((item) => item.rowId));
+    setActiveSortValues(options.valuesByRow ?? null);
+
+    if (options.resetToFirst) {
+      setIndex(0);
+      return;
+    }
+
     const currentRowId = current?.rowId;
     const nextIndex = currentRowId
       ? nextOrder.findIndex((item) => item.rowId === currentRowId)
@@ -817,16 +878,21 @@ export const ReviewMode = ({
     const saved = await commitPending();
     if (!saved) return;
     const requestId = ++sortRequestRef.current;
-    const nextOrder = await computeOrder(
+    const result = await computeOrder(
       itemsRef.current,
       nextKey,
       nextDirection
     );
     // Si falló la carga o llegó una respuesta vieja, se mantiene el orden anterior
-    if (!nextOrder || requestId !== sortRequestRef.current) return;
+    if (!result || requestId !== sortRequestRef.current) return;
+    // Cambiar el criterio reinicia al primer registro; solo la dirección conserva la fila
+    const criterionChanged = nextKey !== sortKey;
     setSortKey(nextKey);
     setSortDirection(nextDirection);
-    applyOrder(nextOrder);
+    applyOrder(result.order, {
+      resetToFirst: criterionChanged,
+      valuesByRow: result.valuesByRow,
+    });
   };
 
   const toggleSortDirection = () => {
@@ -839,13 +905,14 @@ export const ReviewMode = ({
     const saved = await commitPending();
     if (!saved) return;
     const requestId = ++sortRequestRef.current;
-    const nextOrder = await computeOrder(
+    const result = await computeOrder(
       itemsRef.current,
       sortKey,
       sortDirection
     );
-    if (!nextOrder || requestId !== sortRequestRef.current) return;
-    applyOrder(nextOrder);
+    if (!result || requestId !== sortRequestRef.current) return;
+    // Reordenar conserva la fila actual y actualiza los valores congelados
+    applyOrder(result.order, { valuesByRow: result.valuesByRow });
   };
 
   // ------------------------------------------------------------- búsqueda
@@ -1822,12 +1889,22 @@ export const ReviewMode = ({
     return (
       <div className="w-full space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            {axis === "column" ? "Fila" : "Columna"}:{" "}
-            <span className="font-medium text-foreground">
-              {axis === "column" ? current?.rowName : current?.columnName}
-            </span>
-          </p>
+          <div className="min-w-0">
+            <p className="text-sm text-muted-foreground">
+              {axis === "column" ? "Fila" : "Columna"}:{" "}
+              <span className="font-medium text-foreground">
+                {axis === "column" ? current?.rowName : current?.columnName}
+              </span>
+            </p>
+            {sortDisplay && (
+              <p className="truncate text-sm text-muted-foreground">
+                {sortDisplay.columnName}:{" "}
+                <span className="font-medium text-foreground">
+                  {sortDisplay.value}
+                </span>
+              </p>
+            )}
+          </div>
           {isSearchEditor && (
             <Button
               variant="ghost"
