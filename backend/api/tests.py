@@ -1452,3 +1452,178 @@ class ColumnCellValuesViewTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class PartialUpdatePatchTestCase(APITestCase):
+    """
+    Regresión del enrutado `PATCH` (partial_update) en filas, columnas y pestañas.
+
+    `api/urls.py` debe mapear `'patch': 'partial_update'` en los tres detail
+    routes: si el mapeo falta, la petición responde 405 en lugar de actualizar.
+    Además, un PATCH parcial no debe exigir los campos completos del serializer
+    (`data` en filas, `type`/`tab_id` en columnas) ni vaciar datos existentes.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='patch_user', password='password123')
+        # Usuario con visibilidad pero sin permisos de cambio (casos 403).
+        self.readonly_user = User.objects.create_user(
+            username='patch_readonly_user', password='password123')
+
+        self.table = Table.objects.create(name='Partial Patch Table', description='Desc')
+        self.tab = Tab.objects.create(table=self.table, name='General', label='General', order=0)
+        self.column = Column.objects.create(
+            tab=self.tab, name='Nombre', type='text', order=0, is_required=True)
+        self.row = Row.objects.create(table=self.table, name='Fila 1', order=0)
+
+        ct_row = ContentType.objects.get_for_model(Row)
+        ct_col = ContentType.objects.get_for_model(Column)
+        self.change_row_perm = Permission.objects.get(
+            codename='change_row', content_type=ct_row)
+        self.change_col_perm = Permission.objects.get(
+            codename='change_column', content_type=ct_col)
+        self.user.user_permissions.add(self.change_row_perm, self.change_col_perm)
+
+        for target_user in (self.user, self.readonly_user):
+            assign_perm('view_table', target_user, self.table)
+            # TabViewSet.get_queryset valida el permiso del verbo sobre la tabla
+            # (change_table para PATCH), no solo view_table.
+            assign_perm('change_table', target_user, self.table)
+            assign_perm('view_tab', target_user, self.tab)
+
+        # Solo el usuario con permisos de cambio puede modificar la pestaña.
+        assign_perm('change_tab', self.user, self.tab)
+
+    def _authenticate(self, user):
+        """Refresca el usuario para limpiar la caché de permisos de guardian."""
+        user = User.objects.get(id=user.id)
+        self.client.force_authenticate(user=user)
+        return user
+
+    def _row_url(self):
+        return f'/api/tables/{self.table.id}/rows/{self.row.id}/'
+
+    def _column_url(self):
+        return f'/api/tables/{self.table.id}/columns/{self.column.id}/'
+
+    def _tab_url(self):
+        return f'/api/tables/{self.table.id}/tabs/{self.tab.id}/'
+
+    # --- FILAS ---
+    def test_patch_row_with_name_only_returns_200_and_updates_name(self):
+        """PATCH de fila con solo `name` actualiza el nombre sin exigir `data`."""
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._row_url(), {'name': 'Fila Renombrada'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Fila Renombrada')
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.name, 'Fila Renombrada')
+
+    def test_patch_row_with_name_only_keeps_existing_cells(self):
+        """Un PATCH parcial de la fila no borra las celdas ya guardadas."""
+        cell = CellValue.objects.create(row=self.row, column=self.column)
+        cell.set_value('Valor previo')
+        cell.save()
+
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._row_url(), {'name': 'Fila Renombrada'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['data'], {str(self.column.id): 'Valor previo'})
+        self.assertEqual(
+            CellValue.objects.get(row=self.row, column=self.column).get_value(),
+            'Valor previo',
+        )
+
+    # --- COLUMNAS ---
+    def test_patch_column_with_name_only_returns_200_and_updates_name(self):
+        """PATCH de columna con solo `name` actualiza el nombre sin exigir `type` ni `tab_id`."""
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._column_url(), {'name': 'Columna Renombrada'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Columna Renombrada')
+
+        self.column.refresh_from_db()
+        self.assertEqual(self.column.name, 'Columna Renombrada')
+        # El resto de campos se conserva
+        self.assertEqual(self.column.type, 'text')
+        self.assertEqual(str(self.column.tab_id), str(self.tab.id))
+        self.assertTrue(self.column.is_required)
+
+    # --- PESTAÑAS ---
+    def test_patch_tab_with_name_and_label_returns_200_and_updates_both(self):
+        """PATCH de pestaña con `name` y `label` actualiza ambos campos."""
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._tab_url(),
+            {'name': 'Renombrada', 'label': 'Etiqueta Renombrada'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Renombrada')
+        self.assertEqual(response.data['label'], 'Etiqueta Renombrada')
+
+        self.tab.refresh_from_db()
+        self.assertEqual(self.tab.name, 'Renombrada')
+        self.assertEqual(self.tab.label, 'Etiqueta Renombrada')
+        self.assertEqual(str(self.tab.table_id), str(self.table.id))
+        self.assertEqual(self.tab.order, 0)
+
+    # --- DUPLICADOS ---
+    def test_patch_tab_with_duplicate_name_in_same_table_returns_400(self):
+        """Un nombre de pestaña repetido dentro de la misma tabla responde 400."""
+        Tab.objects.create(table=self.table, name='Duplicada', label='Duplicada', order=1)
+
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._tab_url(), {'name': 'Duplicada'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.tab.refresh_from_db()
+        self.assertEqual(self.tab.name, 'General')
+
+    def test_patch_column_with_duplicate_name_in_same_tab_returns_400(self):
+        """Un nombre de columna repetido dentro de la misma pestaña responde 400."""
+        Column.objects.create(tab=self.tab, name='Duplicada', type='text', order=1)
+
+        self._authenticate(self.user)
+        response = self.client.patch(
+            self._column_url(), {'name': 'Duplicada'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.column.refresh_from_db()
+        self.assertEqual(self.column.name, 'Nombre')
+
+    # --- PERMISOS (403, no 405) ---
+    def test_patch_row_without_change_permission_returns_403(self):
+        """PATCH de fila sin permiso global 'change_row' responde 403 (la ruta existe)."""
+        self._authenticate(self.readonly_user)
+        response = self.client.patch(
+            self._row_url(), {'name': 'Sin Permiso'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.name, 'Fila 1')
+
+    def test_patch_column_without_change_permission_returns_403(self):
+        """PATCH de columna sin permiso global 'change_column' responde 403."""
+        self._authenticate(self.readonly_user)
+        response = self.client.patch(
+            self._column_url(), {'name': 'Sin Permiso'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.column.refresh_from_db()
+        self.assertEqual(self.column.name, 'Nombre')
+
+    def test_patch_tab_without_change_permission_returns_403(self):
+        """PATCH de pestaña sin permiso de objeto 'change_tab' responde 403."""
+        self._authenticate(self.readonly_user)
+        response = self.client.patch(
+            self._tab_url(), {'name': 'Sin Permiso'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.tab.refresh_from_db()
+        self.assertEqual(self.tab.name, 'General')
+
+

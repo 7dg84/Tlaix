@@ -33,6 +33,10 @@ export const rowService = {
 
   update: (tableId: string, rowId: string, data: Partial<Row>) =>
     apiClient.put<Row>(`/tables/${tableId}/rows/${rowId}/`, data).then(res => res.data),
+
+  // PATCH parcial: un renombrado no debe exigir el campo `data`
+  rename: (tableId: string, rowId: string, name: string) =>
+    apiClient.patch<Row>(`/tables/${tableId}/rows/${rowId}/`, { name }).then(res => res.data),
     
   delete: (tableId: string, rowId: string) =>
     apiClient.delete(`/tables/${tableId}/rows/${rowId}/`).then(res => res.data),

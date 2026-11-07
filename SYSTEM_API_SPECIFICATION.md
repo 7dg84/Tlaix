@@ -504,8 +504,10 @@ erDiagram
 - **Rutas**:
   - `GET /api/tables/<table_id>/tabs/<pk>/` (200 OK)
   - `PUT /api/tables/<table_id>/tabs/<pk>/` (200 OK)
+  - `PATCH /api/tables/<table_id>/tabs/<pk>/` (200 OK)
   - `DELETE /api/tables/<table_id>/tabs/<pk>/` (204 No Content)
 - **Permisos**: Requiere permisos granulares a nivel de objeto `view_tab`, `change_tab` y `delete_tab` correspondientemente.
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `label` y `order`. El renombrado inline del frontend envía `{"name": "...", "label": "..."}`. Un nombre duplicado dentro de la misma tabla devuelve `400 Bad Request` (`unique_together` de `table` + `name`).
 
 ---
 
@@ -562,7 +564,9 @@ erDiagram
 #### 3. Detalle, Edición y Eliminación
 - `GET /api/tables/<table_id>/columns/<pk>/`
 - `PUT /api/tables/<table_id>/columns/<pk>/`
+- `PATCH /api/tables/<table_id>/columns/<pk>/`
 - `DELETE /api/tables/<table_id>/columns/<pk>/`
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `type`, `options`, `order`, `is_required` y `tab_id`. Un nombre duplicado dentro de la misma pestaña devuelve `400 Bad Request` (`unique_together` de `tab` + `name`).
 
 #### 4. Valores Completos de una Columna (modo revisión, 2026-10-23)
 - **Método**: `GET`
@@ -642,7 +646,9 @@ erDiagram
 #### 3. Detalle, Modificación y Eliminación
 - `GET /api/tables/<table_id>/rows/<pk>/`
 - `PUT /api/tables/<table_id>/rows/<pk>/`
+- `PATCH /api/tables/<table_id>/rows/<pk>/`
 - `DELETE /api/tables/<table_id>/rows/<pk>/`
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `order` y `data`. El renombrado inline del frontend envía solo `{"name": "..."}`. `data` sigue siendo opcional en `PATCH` (en `PUT` el serializador lo exige), y si se envía, crea o actualiza las celdas correspondientes.
 
 #### 4. Valores Completos de una Fila (modo revisión, 2026-10-23)
 - **Método**: `GET`

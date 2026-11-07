@@ -20,6 +20,13 @@ export const tabService = {
 
   update: (tableId: string, tabId: string, data: Partial<Tab>) =>
     apiClient.put<Tab>(`/tables/${tableId}/tabs/${tabId}/`, data).then(res => res.data),
+
+  // PATCH parcial: mantiene sincronizados el nombre y la etiqueta visible
+  rename: (tableId: string, tabId: string, name: string) =>
+    apiClient.patch<Tab>(`/tables/${tableId}/tabs/${tabId}/`, {
+      name,
+      label: name,
+    }).then(res => res.data),
   
   delete: (tableId: string, tabId: string) =>
     apiClient.delete(`/tables/${tableId}/tabs/${tabId}/`).then(res => res.data),

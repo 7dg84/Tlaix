@@ -22,6 +22,7 @@ import { AddTabDialog, TabDefinition } from "@/components/AddTabDialog";
 import { Header } from "@/components/Header";
 import { CellEditor } from "@/components/CellEditor";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
+import { InlineRename } from "@/components/InlineRename";
 import { ReviewMode } from "@/components/ReviewMode";
 import type { ReviewAxis } from "@/lib/review";
 import { isAuthError } from "@/lib/auth";
@@ -459,6 +460,80 @@ const TableView = () => {
     setReviewTarget({ axis, id, label });
   };
 
+  /**
+   * Renombra la columna en la API y actualiza el estado local.
+   * Relanza el error para que `InlineRename` mantenga la edición abierta.
+   */
+  const renameColumn = async (column: ColumnDefinition, name: string) => {
+    if (!tableId) throw new Error("No hay una tabla activa.");
+
+    try {
+      await columnService.rename(tableId, column.id, name);
+      setColumns((prev) =>
+        prev.map((col) => (col.id === column.id ? { ...col, name } : col))
+      );
+      // Si la columna está en modo revisión, el overlay debe mostrar el nombre nuevo
+      setReviewTarget((prev) =>
+        prev && prev.axis === "column" && prev.id === column.id
+          ? { ...prev, label: name }
+          : prev
+      );
+      toast.success("Columna renombrada correctamente");
+    } catch (error) {
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error renombrando columna:", error);
+      }
+      throw error;
+    }
+  };
+
+  /** Renombra la fila en la API y actualiza el estado local. */
+  const renameRow = async (row: TableRow, name: string) => {
+    if (!tableId) throw new Error("No hay una tabla activa.");
+
+    try {
+      await rowService.rename(tableId, row.id, name);
+      setRows((prev) =>
+        prev.map((item) => (item.id === row.id ? { ...item, name } : item))
+      );
+      // Si la fila está en modo revisión, el overlay debe mostrar el nombre nuevo
+      setReviewTarget((prev) =>
+        prev && prev.axis === "row" && prev.id === row.id
+          ? { ...prev, label: name }
+          : prev
+      );
+      toast.success("Fila renombrada correctamente");
+    } catch (error) {
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error renombrando fila:", error);
+      }
+      throw error;
+    }
+  };
+
+  /** Renombra la pestaña; `name` y `label` se mantienen sincronizados. */
+  const renameTab = async (tab: TabDefinition, name: string) => {
+    if (!tableId) throw new Error("No hay una tabla activa.");
+
+    try {
+      await tabService.rename(tableId, tab.id, name);
+      setTabs((prev) =>
+        prev.map((item) =>
+          item.id === tab.id ? { ...item, name, label: name } : item
+        )
+      );
+      toast.success("Pestaña renombrada correctamente");
+    } catch (error) {
+      if (!isAuthError(error)) {
+        manageError(error);
+        console.error("Error renombrando pestaña:", error);
+      }
+      throw error;
+    }
+  };
+
   const handleConfirmDeleteTab = async () => {
     if (!tableId || !tabToDelete) return;
     try {
@@ -553,7 +628,14 @@ const TableView = () => {
                   value={tab.id}
                   className="flex items-center justify-center group"
                 >
-                  <span>{tab.label}</span>
+                  <InlineRename
+                    value={tab.label}
+                    onRename={(name) => renameTab(tab, name)}
+                    label={`pestaña ${tab.label}`}
+                    maxLength={100}
+                    inputClassName="w-32"
+                    buttonElement="span"
+                  />
                   <X
                     className="w-3.5 h-3.5 ml-2 hover:text-destructive hover:bg-destructive/10 rounded-full p-0.5 transition-colors cursor-pointer"
                     onClick={(e) => {
@@ -576,7 +658,13 @@ const TableView = () => {
                       {columns.map((column) => (
                         <th key={column.id} className="text-left p-4 font-semibold">
                           <div className="flex items-center justify-between gap-2">
-                            <span>{column.name}</span>
+                            <InlineRename
+                              value={column.name}
+                              onRename={(name) => renameColumn(column, name)}
+                              label={`columna ${column.name}`}
+                              maxLength={100}
+                              inputClassName="w-40"
+                            />
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
@@ -611,7 +699,13 @@ const TableView = () => {
                       >
                         <td className="p-4 font-medium">
                           <div className="flex items-center justify-between gap-2">
-                            <span>{row.name}</span>
+                            <InlineRename
+                              value={row.name}
+                              onRename={(name) => renameRow(row, name)}
+                              label={`fila ${row.name}`}
+                              maxLength={200}
+                              inputClassName="w-48"
+                            />
                             <button
                               type="button"
                               onClick={() => openReview("row", row.id, row.name)}
