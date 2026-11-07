@@ -24,19 +24,13 @@
 - [ ] Permisos de ver el modulo de asistencia
 - [X] Icono del calendario junto a nombre de la columna, para autorellenar con la fecha completa, dia, mes (número), mes (nombre), año (Completado en `AddColumnDialog`; ciclo con `date-fns` locale `es`; E2E 2026-10-26)
 - [X] Redirección global al login ante cualquier 401 + `returnTo` + recarga de consultas tras autenticarse (Completado: interceptor, `ProtectedRoute`, aviso de sesión expirada; E2E 2026-10-26)
-- [ ] Icono para autorellenar hora
-- [X] Verificación E2E real (modo revisión: 60 filas × 6 tipos; calendario/401: 2026-10-26)
-Dataset temporal de 60 filas × 6 columnas (texto, entero, decimal, checkbox, lista de 12 opciones, fecha):
-
-La columna carga los 60 registros (no solo los 50 visibles).
-Filtro "rech" → Rechazado; buffer 12 → Finalizado; 99 → error sin avance.
-Checkbox, texto, entero (1.5 rechazado, 5 guardado), decimal y fecha guardan y avanzan correctamente.
-Fila Fila 01 recorre sus 6 columnas y termina en “Revisión completada”.
-Fallo 502 → panel + reversión; Reintentar → 200 y avance. Fallo 403 → mensaje correcto; Salir sin guardar cierra.
-X con cambio pendiente guarda y cierra; persistencia confirmada en los 6 tipos tras recargar.
-- [X] E2E en navegador: login con credenciales inválidas muestra los toasts “Credenciales inválidas” y “Usuario no encontrado” con role="status"; 0 regiones de sonner en el DOM. (Verificado; el caso de calendario/401 muestra además «Credenciales incorrectas».)
+- [X] Icono para autorellenar hora
 - [ ] Filtros en modo refision de orden
 - [ ] Editar name de row culumns tabs y tables
 - [X] El modo revision en un modo por orden alfabetico ascendente o descendente y conforme a otras columnas y otro modo donde se pueda buscar el registro y editarlo (Plan: `docs/plans/2026-10-27-modo-revision-orden-busqueda.md`; QA: `docs/qa/2026-10-27-modo-revision-orden-busqueda.md`)
+- [ ] Modo revision hacer mas grande el nombre de row o column que se esta revisando
 - [ ] Permisos granulares en nuevo endpoint de la api de /cellvalues/
+- [ ] Arrastrar para cambiar el orden de columns tabs y rows
+- [ ] Editar nombre de columns yows y tabs
+- [ ] Reeplaza el boton de editar el nombre por la accion de doble click sobre el nombre
 - [ ] 
