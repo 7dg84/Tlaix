@@ -1,14 +1,14 @@
 from django.contrib.auth.models import User, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
-from django.db import connection
+from django.db import connection, IntegrityError
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework.authtoken.models import Token
 import datetime
-from api.models import Table, Tab, Column, Row, CellValue
+from api.models import Table, Tab, Column, Row, RowTabData, validate_and_format_cell_value
 from guardian.shortcuts import assign_perm, get_perms
 
 class TablePermissionsTestCase(APITestCase):
@@ -568,12 +568,20 @@ class DateCellValueTestCase(APITestCase):
         self.column = Column.objects.create(tab=self.tab, name='Fecha Creacion', type='date', order=0)
         self.row = Row.objects.create(table=self.table, name='Row 1', order=0)
 
-        # Permissions for CellValue API
-        ct_cell = ContentType.objects.get_for_model(CellValue)
-        add_cell_perm = Permission.objects.get(codename='add_cellvalue', content_type=ct_cell)
-        change_cell_perm = Permission.objects.get(codename='change_cellvalue', content_type=ct_cell)
-        view_cell_perm = Permission.objects.get(codename='view_cellvalue', content_type=ct_cell)
-        self.user.user_permissions.add(add_cell_perm, change_cell_perm, view_cell_perm)
+        # Permissions for RowTabData API
+        ct_rtd = ContentType.objects.get_for_model(RowTabData)
+        add_cell_perm = Permission.objects.get(codename='add_rowtabdata', content_type=ct_rtd)
+        change_cell_perm = Permission.objects.get(codename='change_rowtabdata', content_type=ct_rtd)
+        view_cell_perm = Permission.objects.get(codename='view_rowtabdata', content_type=ct_rtd)
+        delete_cell_perm = Permission.objects.get(codename='delete_rowtabdata', content_type=ct_rtd)
+        self.user.user_permissions.add(add_cell_perm, change_cell_perm, view_cell_perm, delete_cell_perm)
+
+        # Permisos por objeto para CompleteDjangoObjectPermissions en CellValueViewSet
+        for perm in ('view_table', 'change_table', 'add_table', 'delete_table'):
+            assign_perm(perm, self.user, self.table)
+        for perm in ('view_tab', 'change_tab', 'add_tab', 'delete_tab'):
+            assign_perm(perm, self.user, self.tab)
+
         self.user = User.objects.get(id=self.user.id)
         self.client.force_authenticate(user=self.user)
 
@@ -581,21 +589,21 @@ class DateCellValueTestCase(APITestCase):
         """Verifica que se puede crear una columna de tipo 'date'."""
         self.assertEqual(self.column.type, 'date')
 
-    def test_cell_value_model_set_and_get_date(self):
-        """Verifica el guardado y recuperación de un valor de fecha en CellValue."""
-        cell = CellValue.objects.create(row=self.row, column=self.column)
+    def test_row_tab_data_validate_and_format_date(self):
+        """Verifica la validación y guardado de un valor de fecha en RowTabData."""
+        rtd = RowTabData.objects.create(row=self.row, tab=self.tab)
         
         # Asignar mediante string ISO
-        cell.set_value('2026-10-11')
-        cell.save()
-        self.assertEqual(cell.value_date, datetime.date(2026, 10, 11))
-        self.assertEqual(cell.get_value(), '2026-10-11')
+        val_str = validate_and_format_cell_value(self.column, '2026-10-11')
+        rtd.data[str(self.column.id)] = val_str
+        rtd.save()
+        self.assertEqual(rtd.data[str(self.column.id)], '2026-10-11')
 
         # Asignar mediante objeto date
-        cell.set_value(datetime.date(2027, 5, 20))
-        cell.save()
-        self.assertEqual(cell.value_date, datetime.date(2027, 5, 20))
-        self.assertEqual(cell.get_value(), '2027-05-20')
+        val_date = validate_and_format_cell_value(self.column, datetime.date(2027, 5, 20))
+        rtd.data[str(self.column.id)] = val_date
+        rtd.save()
+        self.assertEqual(rtd.data[str(self.column.id)], '2027-05-20')
 
     def test_cell_value_api_create_and_update_valid_date(self):
         """Crear y actualizar una celda de tipo fecha a través de la API CellValueViewSet."""
@@ -615,6 +623,28 @@ class DateCellValueTestCase(APITestCase):
         response_put = self.client.put(url, {'value': '2027-01-15'})
         self.assertEqual(response_put.status_code, status.HTTP_200_OK)
         self.assertEqual(response_put.data['value'], '2027-01-15')
+
+        # Comprobar persistencia directa en RowTabData
+        rtd = RowTabData.objects.get(row=self.row, tab=self.tab)
+        self.assertEqual(rtd.data[str(self.column.id)], '2027-01-15')
+
+    def test_cell_value_api_delete_date(self):
+        """Elimina una celda a través de DELETE y valida que se remueva de RowTabData."""
+        url = f'/api/tables/cell/{self.table.id}/{self.column.id}/{self.row.id}/'
+        self.client.post(url, {'value': '2026-10-11'})
+        rtd = RowTabData.objects.get(row=self.row, tab=self.tab)
+        self.assertIn(str(self.column.id), rtd.data)
+
+        # DELETE
+        res_del = self.client.delete(url)
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+
+        rtd.refresh_from_db()
+        self.assertNotIn(str(self.column.id), rtd.data)
+
+        # GET posterior retorna 404
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cell_value_api_rejects_invalid_date(self):
         """La API CellValueViewSet rechaza valores no compatibles con fecha devolviendo 400 Bad Request."""
@@ -719,8 +749,8 @@ class TableBulkUploadTestCase(APITestCase):
         self.assertEqual(response.data['rows_count'], 1)
 
         row_obj = Row.objects.get(table=self.table, name='Usuario Test')
-        cell = CellValue.objects.get(row=row_obj, column=col)
-        self.assertEqual(cell.get_value(), 'test@example.com')
+        rtd = RowTabData.objects.get(row=row_obj, tab=tab)
+        self.assertEqual(rtd.data.get(str(col.id)), 'test@example.com')
 
     def test_bulk_upload_duplicate_tab_rejected(self):
         Tab.objects.create(table=self.table, name='Existente', label='Existente', order=0)
@@ -762,12 +792,16 @@ class TabViewPaginationTestCase(APITestCase):
             for i in range(self.ROWS)
         ]
 
-        # Una celda por cada fila/columna con un valor identificable
-        for row in self.rows:
-            for column in self.columns:
-                cell = CellValue.objects.create(row=row, column=column)
-                cell.set_value(f'{row.name}::{column.name}')
-                cell.save()
+        # Celdas por cada fila/columna en RowTabData
+        records = [
+            RowTabData(
+                row=row,
+                tab=self.tab,
+                data={str(col.id): f'{row.name}::{col.name}' for col in self.columns}
+            )
+            for row in self.rows
+        ]
+        RowTabData.objects.bulk_create(records)
 
         assign_perm('view_table', self.user, self.table)
         assign_perm('view_tab', self.user, self.tab)
@@ -841,9 +875,9 @@ class TabViewPaginationTestCase(APITestCase):
         column_ids = {str(column['id']) for column in columns}
         for row in rows:
             self.assertEqual(set(row['cells'].keys()), column_ids)
+            rtd = RowTabData.objects.get(row_id=row['id'], tab=self.tab)
             for column in columns:
-                cell = CellValue.objects.get(row_id=row['id'], column_id=column['id'])
-                self.assertEqual(row['cells'][column['id']], cell.get_value())
+                self.assertEqual(row['cells'][column['id']], rtd.data[column['id']])
 
     def test_row_limit_all_returns_every_row(self):
         """row_limit=all devuelve todas las filas (modo no paginado)."""
@@ -1075,10 +1109,11 @@ class RowCellValuesViewTestCase(APITestCase):
         self.empty_row = Row.objects.create(
             table=self.table, name='Cliente 4', order=3)
 
-        for column, (_name, _type, _options, value) in zip(self.columns, self.COLUMN_SPECS):
-            cell = CellValue.objects.create(row=self.row, column=column)
-            cell.set_value(value)
-            cell.save()
+        row_data = {
+            str(column.id): value
+            for column, (_name, _type, _options, value) in zip(self.columns, self.COLUMN_SPECS)
+        }
+        RowTabData.objects.create(row=self.row, tab=self.tab, data=row_data)
 
         # Objetos de otra tabla: sirven para validar los 404 por pertenencia
         other_table = Table.objects.create(name='Review Row Other Table')
@@ -1187,10 +1222,10 @@ class RowCellValuesViewTestCase(APITestCase):
                 tab=self.tab, name=f'Extra {index}', type='text', order=100 + index)
             for index in range(self.EXTRA_COLUMNS)
         ]
+        rtd = RowTabData.objects.get(row=self.row, tab=self.tab)
         for column in extra_columns:
-            cell = CellValue.objects.create(row=self.row, column=column)
-            cell.set_value('Valor extra')
-            cell.save()
+            rtd.data[str(column.id)] = 'Valor extra'
+        rtd.save()
 
         with CaptureQueriesContext(connection) as captured:
             response = self.client.get(self._url(self.row.id))
@@ -1335,12 +1370,17 @@ class ColumnCellValuesViewTestCase(APITestCase):
             for index in range(self.ROWS)
         ])
 
-        # Solo las filas pares tienen celda: las impares deben salir en null.
-        for index, row in enumerate(self.rows):
-            if index % 2 == 0:
-                cell = CellValue.objects.create(row=row, column=self.column)
-                cell.set_value('Activo' if index % 4 == 0 else 'Inactivo')
-                cell.save()
+        # Solo las filas pares tienen celda en RowTabData: las impares deben salir en null.
+        row_tab_records = [
+            RowTabData(
+                row=row,
+                tab=self.tab,
+                data={str(self.column.id): 'Activo' if index % 4 == 0 else 'Inactivo'}
+            )
+            for index, row in enumerate(self.rows)
+            if index % 2 == 0
+        ]
+        RowTabData.objects.bulk_create(row_tab_records)
 
         other_table = Table.objects.create(name='Review Column Other Table')
         other_tab = Tab.objects.create(
@@ -1521,19 +1561,19 @@ class PartialUpdatePatchTestCase(APITestCase):
 
     def test_patch_row_with_name_only_keeps_existing_cells(self):
         """Un PATCH parcial de la fila no borra las celdas ya guardadas."""
-        cell = CellValue.objects.create(row=self.row, column=self.column)
-        cell.set_value('Valor previo')
-        cell.save()
+        rtd = RowTabData.objects.create(
+            row=self.row,
+            tab=self.tab,
+            data={str(self.column.id): 'Valor previo'}
+        )
 
         self._authenticate(self.user)
         response = self.client.patch(
             self._row_url(), {'name': 'Fila Renombrada'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['data'], {str(self.column.id): 'Valor previo'})
-        self.assertEqual(
-            CellValue.objects.get(row=self.row, column=self.column).get_value(),
-            'Valor previo',
-        )
+        rtd.refresh_from_db()
+        self.assertEqual(rtd.data.get(str(self.column.id)), 'Valor previo')
 
     # --- COLUMNAS ---
     def test_patch_column_with_name_only_returns_200_and_updates_name(self):
@@ -1625,5 +1665,255 @@ class PartialUpdatePatchTestCase(APITestCase):
 
         self.tab.refresh_from_db()
         self.assertEqual(self.tab.name, 'General')
+
+
+class RowTabDataCRUDTestCase(APITestCase):
+    """
+    Pruebas exhaustivas de cobertura para el modelo RowTabData y el endpoint
+    /api/tables/cell/<table_id>/<column_id>/<row_id>/ (CellValueViewSet).
+    Verifica CRUD por HTTP para todos los tipos de columna, validaciones,
+    borrado atómico por columna y restricciones del modelo.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='rtd_user', password='password123')
+        self.table = Table.objects.create(name='RTD Table', description='RowTabData Tests')
+        self.tab1 = Tab.objects.create(table=self.table, name='Tab Principal', label='Principal', order=0)
+        self.tab2 = Tab.objects.create(table=self.table, name='Tab Secundaria', label='Secundaria', order=1)
+
+        # Columnas de diversos tipos en tab1
+        self.col_text = Column.objects.create(tab=self.tab1, name='Nombre', type='text', order=0)
+        self.col_int = Column.objects.create(tab=self.tab1, name='Edad', type='int', order=1)
+        self.col_float = Column.objects.create(tab=self.tab1, name='Promedio', type='float', order=2)
+        self.col_checkbox = Column.objects.create(tab=self.tab1, name='Activo', type='checkbox', order=3)
+        self.col_select = Column.objects.create(
+            tab=self.tab1, name='Turno', type='select', options=['Matutino', 'Vespertino'], order=4
+        )
+        self.col_date = Column.objects.create(tab=self.tab1, name='Inscripcion', type='date', order=5)
+
+        # Columna en tab2 para probar aislamiento
+        self.col_tab2 = Column.objects.create(tab=self.tab2, name='Observacion', type='text', order=0)
+
+        # Filas
+        self.row1 = Row.objects.create(table=self.table, name='Alumno 1', order=0)
+        self.row2 = Row.objects.create(table=self.table, name='Alumno 2', order=1)
+
+        # Permisos requeridos para RowTabData
+        ct_rtd = ContentType.objects.get_for_model(RowTabData)
+        self.user.user_permissions.add(
+            Permission.objects.get(codename='add_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='change_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='view_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='delete_rowtabdata', content_type=ct_rtd),
+        )
+        # Permisos por objeto requeridos por CompleteDjangoObjectPermissions
+        for perm in ('view_table', 'change_table', 'add_table', 'delete_table'):
+            assign_perm(perm, self.user, self.table)
+        for tab in (self.tab1, self.tab2):
+            for perm in ('view_tab', 'change_tab', 'add_tab', 'delete_tab'):
+                assign_perm(perm, self.user, tab)
+
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def _cell_url(self, column, row):
+        return f'/api/tables/cell/{self.table.id}/{column.id}/{row.id}/'
+
+    def test_http_cell_crud_all_supported_types(self):
+        """CRUD HTTP exitoso para text, int, float, checkbox, select y date."""
+        test_cases = [
+            (self.col_text, 'Juan Perez', 'Juan Perez Modificado'),
+            (self.col_int, 25, 26),
+            (self.col_float, 9.5, 9.8),
+            (self.col_checkbox, True, False),
+            (self.col_select, 'Matutino', 'Vespertino'),
+            (self.col_date, '2026-03-15', '2026-04-20'),
+        ]
+
+        for column, initial_val, updated_val in test_cases:
+            url = self._cell_url(column, self.row1)
+
+            # 1. CREATE (POST)
+            res_post = self.client.post(url, {'value': initial_val}, format='json')
+            self.assertEqual(res_post.status_code, status.HTTP_201_CREATED, f"Fallo al crear tipo {column.type}")
+            self.assertEqual(res_post.data['value'], initial_val)
+            self.assertEqual(res_post.data['column_id'], str(column.id))
+            self.assertEqual(res_post.data['row_id'], str(self.row1.id))
+
+            # 2. READ (GET)
+            res_get = self.client.get(url)
+            self.assertEqual(res_get.status_code, status.HTTP_200_OK, f"Fallo al leer tipo {column.type}")
+            self.assertEqual(res_get.data['value'], initial_val)
+
+            # 3. UPDATE (PUT)
+            res_put = self.client.put(url, {'value': updated_val}, format='json')
+            self.assertEqual(res_put.status_code, status.HTTP_200_OK, f"Fallo al actualizar tipo {column.type}")
+            self.assertEqual(res_put.data['value'], updated_val)
+
+        # Verificar que todas las columnas de la fila en tab1 residen en UN ÚNICO registro RowTabData
+        rtd_records = RowTabData.objects.filter(row=self.row1, tab=self.tab1)
+        self.assertEqual(rtd_records.count(), 1)
+        rtd = rtd_records.first()
+        for column, _, updated_val in test_cases:
+            self.assertEqual(rtd.data.get(str(column.id)), updated_val)
+
+    def test_http_cell_delete_removes_column_key_atomically(self):
+        """DELETE remueve la columna específica de RowTabData.data preservando las demás."""
+        url_text = self._cell_url(self.col_text, self.row1)
+        url_int = self._cell_url(self.col_int, self.row1)
+
+        # Crear ambas celdas
+        self.client.post(url_text, {'value': 'Texto permanente'}, format='json')
+        self.client.post(url_int, {'value': 42}, format='json')
+
+        rtd = RowTabData.objects.get(row=self.row1, tab=self.tab1)
+        self.assertIn(str(self.col_text.id), rtd.data)
+        self.assertIn(str(self.col_int.id), rtd.data)
+
+        # Eliminar celda de texto
+        res_del = self.client.delete(url_text)
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Verificar que col_text fue removida pero col_int permanece
+        rtd.refresh_from_db()
+        self.assertNotIn(str(self.col_text.id), rtd.data)
+        self.assertEqual(rtd.data.get(str(self.col_int.id)), 42)
+
+        # GET a la celda eliminada retorna 404
+        res_get_deleted = self.client.get(url_text)
+        self.assertEqual(res_get_deleted.status_code, status.HTTP_404_NOT_FOUND)
+
+        # GET a la celda intacta retorna 200
+        res_get_intact = self.client.get(url_int)
+        self.assertEqual(res_get_intact.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_get_intact.data['value'], 42)
+
+    def test_http_cell_delete_non_existent_returns_404(self):
+        """DELETE a una celda sin datos retorna 404 Not Found."""
+        url = self._cell_url(self.col_text, self.row2)
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_http_cell_get_non_existent_returns_404(self):
+        """GET a una celda sin datos retorna 404 Not Found."""
+        url = self._cell_url(self.col_text, self.row2)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_http_cell_validation_errors(self):
+        """Valores incompatibles con el tipo de columna retornan 400 Bad Request."""
+        # Int con string no numérico
+        url_int = self._cell_url(self.col_int, self.row1)
+        res_int = self.client.post(url_int, {'value': 'no_es_entero'}, format='json')
+        self.assertEqual(res_int.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Checkbox con string
+        url_bool = self._cell_url(self.col_checkbox, self.row1)
+        res_bool = self.client.post(url_bool, {'value': 'true'}, format='json')
+        self.assertEqual(res_bool.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Date con fecha imposible
+        url_date = self._cell_url(self.col_date, self.row1)
+        res_date = self.client.post(url_date, {'value': '2026-13-45'}, format='json')
+        self.assertEqual(res_date.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_row_tab_data_model_unique_together_constraint(self):
+        """El modelo RowTabData no permite más de un registro para el mismo (row, tab)."""
+        RowTabData.objects.create(row=self.row1, tab=self.tab1, data={'k1': 'v1'})
+        with self.assertRaises(IntegrityError):
+            RowTabData.objects.create(row=self.row1, tab=self.tab1, data={'k2': 'v2'})
+
+    def test_row_tab_data_tab_isolation(self):
+        """RowTabData aísla los datos entre diferentes pestañas de la misma fila."""
+        rtd1 = RowTabData.objects.create(
+            row=self.row1, tab=self.tab1, data={str(self.col_text.id): 'Tab1 Val'}
+        )
+        rtd2 = RowTabData.objects.create(
+            row=self.row1, tab=self.tab2, data={str(self.col_tab2.id): 'Tab2 Val'}
+        )
+
+        self.assertNotEqual(rtd1.id, rtd2.id)
+        self.assertEqual(RowTabData.objects.filter(row=self.row1).count(), 2)
+
+        # Actualizar tab2 no impacta tab1
+        rtd2.data[str(self.col_tab2.id)] = 'Tab2 Modificado'
+        rtd2.save()
+
+        rtd1.refresh_from_db()
+        self.assertEqual(rtd1.data.get(str(self.col_text.id)), 'Tab1 Val')
+        self.assertNotIn(str(self.col_tab2.id), rtd1.data)
+
+    def test_http_cell_forbidden_without_object_permissions(self):
+        """
+        Usuario autenticado sin permisos por objeto sobre la tabla/pestaña
+        recibe 403 Forbidden en GET, POST, PUT y DELETE (mitigando hallazgo H-1 IDOR/BOLA).
+        """
+        # Crear dato previo con el usuario legítimo
+        url = self._cell_url(self.col_text, self.row1)
+        res_setup = self.client.post(url, {'value': 'Valor inicial'}, format='json')
+        self.assertEqual(res_setup.status_code, status.HTTP_201_CREATED)
+
+        # Usuario autenticado pero sin permisos por objeto sobre self.table ni pestañas
+        unauthorized_user = User.objects.create_user(
+            username='attacker_no_perms', password='password123'
+        )
+        ct_rtd = ContentType.objects.get_for_model(RowTabData)
+        unauthorized_user.user_permissions.add(
+            Permission.objects.get(codename='add_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='change_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='view_rowtabdata', content_type=ct_rtd),
+            Permission.objects.get(codename='delete_rowtabdata', content_type=ct_rtd),
+        )
+        unauthorized_user = User.objects.get(id=unauthorized_user.id)
+        self.client.force_authenticate(user=unauthorized_user)
+
+        # 1. READ (GET) -> 403 Forbidden
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. CREATE (POST) -> 403 Forbidden
+        url_create = self._cell_url(self.col_int, self.row1)
+        res_post = self.client.post(url_create, {'value': 42}, format='json')
+        self.assertEqual(res_post.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. UPDATE (PUT) -> 403 Forbidden
+        res_put = self.client.put(url, {'value': 'Intento no autorizado'}, format='json')
+        self.assertEqual(res_put.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 4. DELETE -> 403 Forbidden
+        res_del = self.client.delete(url)
+        self.assertEqual(res_del.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verificar que el valor en base de datos no fue alterado ni borrado
+        rtd = RowTabData.objects.get(row=self.row1, tab=self.tab1)
+        self.assertEqual(rtd.data.get(str(self.col_text.id)), 'Valor inicial')
+
+    def test_select_column_options_validation(self):
+        """
+        Un valor no perteneciente a `options` en columna `select`
+        arroja 400 Bad Request (mitigando hallazgo H-2).
+        """
+        url_select = self._cell_url(self.col_select, self.row1)
+
+        # 1. POST con opción no permitida -> 400 Bad Request
+        res_invalid_post = self.client.post(url_select, {'value': 'Nocturno'}, format='json')
+        self.assertEqual(res_invalid_post.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('value', res_invalid_post.data)
+
+        # 2. POST con opción válida ('Matutino' está en options) -> 201 Created
+        res_valid_post = self.client.post(url_select, {'value': 'Matutino'}, format='json')
+        self.assertEqual(res_valid_post.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_valid_post.data['value'], 'Matutino')
+
+        # 3. PUT con opción no permitida -> 400 Bad Request
+        res_invalid_put = self.client.put(url_select, {'value': 'Mixto'}, format='json')
+        self.assertEqual(res_invalid_put.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('value', res_invalid_put.data)
+
+        # 4. Verificar en base de datos que el valor no cambió tras el PUT inválido
+        rtd = RowTabData.objects.get(row=self.row1, tab=self.tab1)
+        self.assertEqual(rtd.data.get(str(self.col_select.id)), 'Matutino')
+
+
 
 

@@ -7,7 +7,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework import status
 
 from asistencia.models import AttendanceMember, AttendanceRelation
-from api.models import Table, Row, Column, CellValue, Tab
+from api.models import Table, Row, Column, RowTabData, Tab
 
 
 class AttendanceModuleTests(TestCase):
@@ -176,15 +176,15 @@ class AttendanceModuleTests(TestCase):
         column = Column.objects.get(tab=tab, name=today_str)
         self.assertEqual(column.type, 'checkbox')
 
-        # Validar creación de CellValue con value_bool=True
-        cell_val = CellValue.objects.get(row=row, column=column)
-        self.assertTrue(cell_val.value_bool)
+        # Validar creación de RowTabData con el checkbox en True
+        rtd = RowTabData.objects.get(row=row, tab=tab)
+        self.assertTrue(rtd.data.get(str(column.id)))
 
         # Chequeo repetido en el mismo día (idempotente)
         res_repeat = self.client.post('/api/asistencia/check/', {'id': 'STUDENT-TEST-1'}, format='json')
         self.assertEqual(res_repeat.status_code, status.HTTP_200_OK)
-        cell_val.refresh_from_db()
-        self.assertTrue(cell_val.value_bool)
+        rtd.refresh_from_db()
+        self.assertTrue(rtd.data.get(str(column.id)))
 
     def test_check_attendance_not_found_or_no_relation(self):
         """Verifica errores 404 al checar miembros inexistentes o sin relación."""

@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from api.permissions import CookieTokenAuthentication
-from api.models import Table, Row, Column, CellValue, Tab
+from api.models import Table, Row, Column, RowTabData, Tab
 from .models import AttendanceMember, AttendanceRelation
 from .serializers import (
     AttendanceMemberSerializer,
@@ -197,15 +197,17 @@ def check(request):
         defaults={'type': 'checkbox'}
     )
 
-    cell_value, created = CellValue.objects.get_or_create(
+    rtd, _ = RowTabData.objects.get_or_create(
         row=relation.row,
-        column=column,
-        defaults={'value_bool': True}
+        tab=tab,
+        defaults={'data': {str(column.id): True}}
     )
 
-    if not created and not cell_value.value_bool:
-        cell_value.value_bool = True
-        cell_value.save(update_fields=['value_bool'])
+    if rtd.data is None:
+        rtd.data = {}
+    if not rtd.data.get(str(column.id)):
+        rtd.data[str(column.id)] = True
+        rtd.save()
 
     return Response({
         'message': 'Check successful',

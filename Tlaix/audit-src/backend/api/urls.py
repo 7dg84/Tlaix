@@ -1,0 +1,47 @@
+from django.urls import path, include, re_path
+from rest_framework.routers import DefaultRouter
+from .views import (
+    TableViewSet, ColumnViewSet, RowViewSet, TabViewSet,
+    CellValueViewSet, TabView, TableBulkUploadView,
+    RowCellValuesView, ColumnCellValuesView,
+    login, register, logout, user, login_clients
+)
+
+router = DefaultRouter()
+router.register(r'tables', TableViewSet, basename="table")
+
+urlpatterns = [
+    # User Auth
+    re_path("user/login/", login, name="login"),
+    re_path(r"^user/$", user, name="user"),
+    re_path("user/register/", register, name="register"),
+    re_path("user/logout/", logout, name="logout"),
+    re_path("clients/login/", login_clients, name="login_clients"),
+    # re_path("user/recover/", recover, name="recover"),
+    #     Vista de tablas en un tab combinando filas y columnas, como una tabla de excel
+    path('tables/tabview/<str:table_id>/<str:tab_id>/', TabView.as_view(), name='tab_view'),
+    path('tables/<str:table_id>/bulk/', TableBulkUploadView.as_view(), name='table_bulk_upload'),
+    # Valores completos de una fila/columna (modo revisión). Deben ir antes de
+    # los detail de rows/columns para dejar clara la precedencia.
+    path('tables/<str:table_id>/rows/<str:pk>/cellvalues/',
+         RowCellValuesView.as_view(), name='row_cellvalues'),
+    path('tables/<str:table_id>/columns/<str:pk>/cellvalues/',
+         ColumnCellValuesView.as_view(), name='column_cellvalues'),
+    path('tables/<str:table_id>/rows/',
+         RowViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('tables/<str:table_id>/rows/<str:pk>/',
+         RowViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'})),
+    path('tables/<str:table_id>/columns/',
+         ColumnViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('tables/<str:table_id>/columns/<str:pk>/',
+         ColumnViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'})),
+    path('tables/<str:table_id>/tabs/',
+         TabViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('tables/<str:table_id>/tabs/<str:pk>/',
+         TabViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'})),
+    path('tables/cell/<str:table_id>/<str:column_id>/<str:row_id>/',
+         CellValueViewSet.as_view({'get': 'retrieve', 'post': 'create', 'put': 'update', 'delete': 'destroy'})),
+
+    path('', include(router.urls)),
+]
+

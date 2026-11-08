@@ -7,7 +7,7 @@ from .serializers import RelationSerializer, PersonalSerializer
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 
-from api.models import Table, Row, Column, CellValue, Tab
+from api.models import Table, Row, Column, RowTabData, Tab
 from django.utils import timezone
 from re import search
 
@@ -107,22 +107,14 @@ def check(request):
     # lugar_col, _ = Column.objects.get_or_create(
     #     tab=tab, name=f"{today_str}_lugar", type='checkbox')
 
-    cell_att, created = CellValue.objects.get_or_create(
-        row=relation.row, column=attendance_col, defaults={'value_bool': True})
-    if not created and not cell_att.value_bool:
-        cell_att.value_bool = True
-        cell_att.save()
-
-    cell_time, created = CellValue.objects.get_or_create(
-        row=relation.row, column=time_col, defaults={'value_text': timestamp})
-    if not created:
-        cell_time.value_text = timestamp
-        cell_time.save()
-
-    # lugar_val = bool(data.get('lugar', False))
-    # cell_lugar, created = CellValue.objects.get_or_create(row=relation.row, column=lugar_col, defaults={'value_bool': lugar_val})
-    # if not created and cell_lugar.value_bool != lugar_val:
-    #     cell_lugar.value_bool = lugar_val
-    #     cell_lugar.save()
+    rtd, _ = RowTabData.objects.get_or_create(
+        row=relation.row,
+        tab=tab
+    )
+    if rtd.data is None:
+        rtd.data = {}
+    rtd.data[str(attendance_col.id)] = True
+    rtd.data[str(time_col.id)] = timestamp
+    rtd.save()
 
     return Response({'message': 'Check successful'}, status=200)

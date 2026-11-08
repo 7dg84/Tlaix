@@ -1,6 +1,6 @@
-- [ ] backend/serializers.py actualizar rows, data ya no se crea desde hay
-- [ ] backend/permisions revisar y actualizar 
-- [ ] backend/ cell value update delete
+- [X] backend/serializers.py actualizar rows, data ya no se crea desde hay (Completado con RowTabData)
+- [X] backend/permisions revisar y actualizar (Completado: CompleteDjangoObjectPermissions en CellValueViewSet)
+- [X] backend/ cell value update delete (Completado sobre RowTabData con atomic delete y validación de tipos)
 - [X] backend/ endpoint para visualizar tablas
 - [ ] backend/ api de relacion de alumnos y tablas (revisar permisos) (cifrado de clave para seguridad)
 - [ ] client/terminar pruebas para POC
@@ -16,7 +16,7 @@
 - [ ] Añadir filas desde archivo, solo csv, manejar archivos grandes y poder seleccionar la columna a importar
 - [X] Cuando se inicie sesion, refrescar (Completado para 401/returnTo: recarga completa con `window.location.assign` y reejecución de consultas)
 - [X] Actualizar texto, lo hace cada que se actualiza algo, retrazar con un timer, para no sobrecargar la bd, cuando el elemento deje de estar activo o un segundo despues (Completado con CellEditor debounce 1s + onBlur)
-- [ ] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece
+- [X] test validar que si creamos editamos un cell value, sea de acuerdo a al type de la column que pertenece (Completado: validate_and_format_cell_value y RowTabDataCRUDTestCase)
 - [X] hacer un limit en el tabview para no realentizar las consultas, y manejarlo en el front end para consultar conforme se scrollea (Completado: row_limit/row_offset + infinite scroll con IntersectionObserver)
 - [X] Crear un endpoint para subir varias filas y tabs al mismo tiempo (Completado: POST /api/tables/<table_id>/bulk/)
 - [X] Eliminar tables, tabs, columns (Completado con ConfirmDeleteDialog y actualización de estado reactivo en Index y TableView)
@@ -26,7 +26,7 @@
 - [X] Redirección global al login ante cualquier 401 + `returnTo` + recarga de consultas tras autenticarse (Completado: interceptor, `ProtectedRoute`, aviso de sesión expirada; E2E 2026-10-26)
 - [X] Icono para autorellenar hora
 - [ ] Filtros en modo refision de orden
-- [ ] Editar name de row culumns tabs y tables
+- [X] Editar name de row culumns tabs y tables (Completado: renombrado inline)
 - [X] El modo revision en un modo por orden alfabetico ascendente o descendente y conforme a otras columnas y otro modo donde se pueda buscar el registro y editarlo (Plan: `docs/plans/2026-10-27-modo-revision-orden-busqueda.md`; QA: `docs/qa/2026-10-27-modo-revision-orden-busqueda.md`)
 - [ ] Modo revision hacer mas grande el nombre de row o column que se esta revisando
 - [ ] Permisos granulares en nuevo endpoint de la api de /cellvalues/

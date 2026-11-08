@@ -1,6 +1,6 @@
 import datetime
 from rest_framework import serializers
-from .models import Table, Column, Row, Tab, CellValue
+from .models import Table, Column, Row, Tab, RowTabData, validate_and_format_cell_value
 from django.contrib.auth.models import User
 from rest_framework.validators import UniqueValidator
 
@@ -54,11 +54,13 @@ class RowSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        # Inject computed data from cells
-        cells = instance.cells.select_related('column').all()
-        representation['data'] = {
-            str(cell.column_id): cell.get_value() for cell in cells
-        }
+        # Inject computed data from row_tab_data
+        tab_records = instance.tab_data.all()
+        merged_data = {}
+        for rtd in tab_records:
+            if isinstance(rtd.data, dict):
+                merged_data.update(rtd.data)
+        representation['data'] = merged_data
         return representation
 
     def _set_cells(self, row, data):
@@ -67,16 +69,25 @@ class RowSerializer(serializers.ModelSerializer):
 
         column_ids = list(data.keys())
         columns = Column.objects.filter(
-            id__in=column_ids, tab__table=row.table)
-        columns_map = {str(column.id): column for column in columns}
+            id__in=column_ids, tab__table=row.table).select_related('tab')
 
-        for column_id, value in data.items():
-            column = columns_map.get(column_id)
-            if not column:
-                continue
-            cell, _ = CellValue.objects.get_or_create(row=row, column=column)
-            cell.set_value(value)
-            cell.save()
+        tab_updates = {}
+        for column in columns:
+            col_id_str = str(column.id)
+            if col_id_str in data:
+                val = data[col_id_str]
+                try:
+                    formatted_val = validate_and_format_cell_value(column, val)
+                except ValueError:
+                    formatted_val = val
+                tab_updates.setdefault(column.tab, {})[col_id_str] = formatted_val
+
+        for tab, updates in tab_updates.items():
+            rtd, _ = RowTabData.objects.get_or_create(row=row, tab=tab)
+            if rtd.data is None:
+                rtd.data = {}
+            rtd.data.update(updates)
+            rtd.save()
 
     def create(self, validated_data):
         data = validated_data.pop('data', {})
@@ -105,7 +116,8 @@ class TabSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class CellValueSerializer(serializers.ModelSerializer):
+class CellValueSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
     row_id = serializers.PrimaryKeyRelatedField(
         queryset=Row.objects.all(), source='row', required=True
     )
@@ -113,103 +125,117 @@ class CellValueSerializer(serializers.ModelSerializer):
         queryset=Column.objects.all(), source='column', required=True
     )
     value = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CellValue
-        fields = ['id', 'row_id', 'column_id',
-                  'value', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'row_id',
-                            'column_id', 'created_at', 'updated_at']
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
 
     def get_value(self, obj):
-        """Retorna el valor usando el método get_value() del modelo"""
-        return obj.get_value()
+        if isinstance(obj, dict):
+            return obj.get('value')
+        return getattr(obj, 'value', None)
+
+    def validate(self, attrs):
+        value = self.initial_data.get('value')
+        # Si se está actualizando y 'value' no está en initial_data, pasa
+        if self.instance is not None and 'value' not in self.initial_data:
+            return attrs
+
+        if value is None and self.instance is None:
+            raise serializers.ValidationError(
+                {"value": "This field is required."})
+
+        column = attrs.get('column')
+        if not column and self.instance:
+            column = self.instance.get('column') if isinstance(self.instance, dict) else getattr(self.instance, 'column', None)
+
+        if column and value is not None:
+            try:
+                validate_and_format_cell_value(column, value)
+            except ValueError as e:
+                raise serializers.ValidationError({"value": str(e)})
+
+        return attrs
 
     def create(self, validated_data):
-        """Crea una nueva celda y establece su valor"""
+        row = validated_data['row']
+        column = validated_data['column']
         value = self.initial_data.get('value')
-        # Validate if value is None
         if value is None:
             raise serializers.ValidationError(
                 {"value": "This field is required."})
-        # Validate if the value is compatible with the column type
-        column = validated_data['column']
-        column_type = column.type
-        if column_type == 'text' and not isinstance(value, str):
-            raise serializers.ValidationError(
-                {"value": "A string value is required for this column."})
-        if column_type == 'checkbox' and not isinstance(value, bool):
-            raise serializers.ValidationError(
-                {"value": "A boolean value is required for this column."})
-        if column_type == 'int' and not isinstance(value, (int, float)):
-            raise serializers.ValidationError(
-                {"value": "A numeric value is required for this column."})
-        if column_type == 'float' and not isinstance(value, (int, float)):
-            raise serializers.ValidationError(
-                {"value": "A numeric value is required for this column."})
-        if column_type == 'select' and not isinstance(value, (str, list, dict)):
-            raise serializers.ValidationError(
-                {"value": "A string, list or dict value is required for this column."})
-        if column_type == 'date':
-            if not isinstance(value, (datetime.date, datetime.datetime, str)):
-                raise serializers.ValidationError(
-                    {"value": "A valid date string (YYYY-MM-DD) or date is required for this column."})
-            if isinstance(value, str):
-                try:
-                    datetime.date.fromisoformat(value[:10])
-                except (ValueError, TypeError):
-                    raise serializers.ValidationError(
-                        {"value": "Date has wrong format. Use YYYY-MM-DD format."})
 
-        cell = CellValue.objects.create(**validated_data)
-        if value is not None:
-            cell.set_value(value)
-            cell.save()
-        return cell
+        try:
+            formatted_val = validate_and_format_cell_value(column, value)
+        except ValueError as e:
+            raise serializers.ValidationError({"value": str(e)})
+
+        rtd, _ = RowTabData.objects.get_or_create(row=row, tab=column.tab)
+        if rtd.data is None:
+            rtd.data = {}
+        rtd.data[str(column.id)] = formatted_val
+        rtd.save()
+
+        return {
+            'id': f"{rtd.id}:{column.id}",
+            'row_id': str(row.id),
+            'column_id': str(column.id),
+            'row': row,
+            'column': column,
+            'value': formatted_val,
+            'created_at': rtd.created_at,
+            'updated_at': rtd.updated_at,
+        }
 
     def update(self, instance, validated_data):
-        """Actualiza una celda existente y su valor"""
-        value = self.initial_data.get('value')
-        column = validated_data.get('column', instance.column)
-        column_type = column.type
+        row = validated_data.get('row', instance.get('row') if isinstance(instance, dict) else getattr(instance, 'row', None))
+        column = validated_data.get('column', instance.get('column') if isinstance(instance, dict) else getattr(instance, 'column', None))
 
-        if value is not None:
-            if column_type == 'text' and not isinstance(value, str):
-                raise serializers.ValidationError(
-                    {"value": "A string value is required for this column."})
-            if column_type == 'checkbox' and not isinstance(value, bool):
-                raise serializers.ValidationError(
-                    {"value": "A boolean value is required for this column."})
-            if column_type == 'int' and not isinstance(value, (int, float)):
-                raise serializers.ValidationError(
-                    {"value": "A numeric value is required for this column."})
-            if column_type == 'float' and not isinstance(value, (int, float)):
-                raise serializers.ValidationError(
-                    {"value": "A numeric value is required for this column."})
-            if column_type == 'select' and not isinstance(value, (str, list, dict)):
-                raise serializers.ValidationError(
-                    {"value": "A string, list or dict value is required for this column."})
-            if column_type == 'date':
-                if not isinstance(value, (datetime.date, datetime.datetime, str)):
-                    raise serializers.ValidationError(
-                        {"value": "A valid date string (YYYY-MM-DD) or date is required for this column."})
-                if isinstance(value, str):
-                    try:
-                        datetime.date.fromisoformat(value[:10])
-                    except (ValueError, TypeError):
-                        raise serializers.ValidationError(
-                            {"value": "Date has wrong format. Use YYYY-MM-DD format."})
+        rtd, _ = RowTabData.objects.get_or_create(row=row, tab=column.tab)
+        if rtd.data is None:
+            rtd.data = {}
 
-        # Actualizar row y column si se proporcionan
-        for attr, val in validated_data.items():
-            setattr(instance, attr, val)
+        if 'value' in self.initial_data:
+            value = self.initial_data.get('value')
+            if value is not None:
+                try:
+                    formatted_val = validate_and_format_cell_value(column, value)
+                except ValueError as e:
+                    raise serializers.ValidationError({"value": str(e)})
+            else:
+                formatted_val = None
+            rtd.data[str(column.id)] = formatted_val
+            rtd.save()
+        else:
+            formatted_val = rtd.data.get(str(column.id))
 
-        # Actualizar el valor si se proporciona
-        if value is not None:
-            instance.set_value(value)
+        return {
+            'id': f"{rtd.id}:{column.id}",
+            'row_id': str(row.id),
+            'column_id': str(column.id),
+            'row': row,
+            'column': column,
+            'value': formatted_val,
+            'created_at': rtd.created_at,
+            'updated_at': rtd.updated_at,
+        }
 
-        instance.save()
-        return instance
+    def to_representation(self, instance):
+        if isinstance(instance, dict):
+            row_val = instance.get('row')
+            row_id = str(row_val.id if hasattr(row_val, 'id') else instance.get('row_id'))
+            col_val = instance.get('column')
+            col_id = str(col_val.id if hasattr(col_val, 'id') else instance.get('column_id'))
+            created_at = instance.get('created_at')
+            updated_at = instance.get('updated_at')
+            cell_id = instance.get('id', f"{row_id}_{col_id}")
+            return {
+                'id': str(cell_id),
+                'row_id': row_id,
+                'column_id': col_id,
+                'value': instance.get('value'),
+                'created_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at or ''),
+                'updated_at': updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at or ''),
+            }
+        return super().to_representation(instance)
 
 # Serilizer for tab view serilizer
 
