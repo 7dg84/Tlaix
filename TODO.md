@@ -33,4 +33,44 @@
 - [ ] Arrastrar para cambiar el orden de columns tabs y rows
 - [ ] Editar nombre de columns yows y tabs
 - [ ] Reeplaza el boton de editar el nombre por la accion de doble click sobre el nombre
+- [ ] Al agregar una fila se duplica la confirmacion
+- [ ] Replantear el funcionamiento de los permisos, roles, compartir, etc
+    Permiso para crear tablas
+    si puede crear una tabla, tiene todos los permisos sobre ella, para editar y ver todo
+    Una tabla se puede compartir para solo ver o editar
+    permiso para editar una tabla compartida
+    permiso para añadir rows columns y tabs a una tabla compartida
+    permiso para editar los valores de ciertas columns tal vez pueda ver todas las de un tab, pero no poder editar todas.
+    No se pueden eliminar tablas que no son suyas, ni cambiar su nombre
+    `` quiza sea bueno añadir un atributo owner para validar estos permisos ``
+    Se puede compartir una tabla a usuarios sin auntenticacion, pero solo la podra ver, en el tab compartido
+
+    table:
+    c: permiso para crear
+    r: permiso granular, creador y a quien compartio
+    u: actualizar el nombre, descripcion e icono, solo el creador
+    d: solo el creador
+
+    tab:
+    c: permiso para crear tabs en esa tabla si es compartida, sino si
+    r: permiso para leer tabs de una tabla granular si es compartida, sino si
+    u: solo si el creo ese tab si es compartida, sino si
+    d: solo si el creo ese tab si es compartida, sino si
+
+    rows:
+    c: permiso para crear rows si es compartida, sino si
+    r: puede ver todos los rows de la tabla si tiene permiso de ver la tabla
+    u: permiso para actualizar los rows si es compartida, sino si
+    d: permiso para eliminar los rows si es compartida, sino si
+
+    columns:
+    c: permiso para crear columns si es compartida, sino si
+    r: puede ver todas las columns de el tab compartido, si es compartida, si es suya todos
+    u: permiso para actualizar los nombres, puede actualizar los que creo, si es compartida, si es suya si
+    d: permiso para borrar columnas, puede borrar las que creo, si es compartida, si es suya todos
+
+    Permisos para el modulo de asistencia:
+    solo un mienro con permisos especiales puede administrar los registros y relaciones, no puede modificar las asistencias.
+    solo un checker, puede registrar asistencias, y ningun permiso mas.
+
 - [ ] 

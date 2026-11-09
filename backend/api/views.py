@@ -450,11 +450,18 @@ class CellValueViewSet(viewsets.ModelViewSet):
         rtd = RowTabData.objects.filter(row=row, tab=column.tab).first()
         is_existing = rtd is not None and isinstance(rtd.data, dict) and str(column.id) in rtd.data
 
-        if not is_existing:
-            data = request.data.copy()
-            data['table_id'] = table_id
-            data['column_id'] = column_id
+        # La fila y la columna de destino siempre provienen de la URL. Se
+        # sobrescriben en el payload para ignorar cualquier `row_id`/`column_id`
+        # enviado por el cliente y evitar escribir en el RowTabData de otra
+        # tabla/pestaña sin validar sus permisos (IDOR/BOLA).
+        data = request.data.copy()
+        if isinstance(data, dict):
             data['row_id'] = row_id
+            data['column_id'] = column_id
+
+        if not is_existing:
+            if isinstance(data, dict):
+                data['table_id'] = table_id
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
@@ -472,7 +479,7 @@ class CellValueViewSet(viewsets.ModelViewSet):
             'updated_at': rtd.updated_at,
         }
         serializer = self.get_serializer(
-            instance_data, data=request.data, partial=True)
+            instance_data, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data)

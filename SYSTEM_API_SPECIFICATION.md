@@ -95,7 +95,7 @@ d:\Documents\Proyectos\Tlaix\
 
 ## 3. Modelo de Datos y Entidades (ER)
 
-El núcleo del sistema utiliza una base de datos relacional PostgreSQL con una arquitectura de datos dinámicos basada en entidad-atributo-valor (EAV) optimizada por tipos:
+El núcleo del sistema utiliza una base de datos relacional PostgreSQL con una arquitectura de datos dinámicos optimizada por tipos, donde las celdas se persisten en un `JSONField` por fila y pestaña (`RowTabData`) en lugar del patrón EAV anterior:
 
 ```mermaid
 erDiagram
@@ -204,7 +204,7 @@ erDiagram
    - `RowTabData`: Único par `[row, tab]` (un solo registro de datos por fila y pestaña).
    - `Relation`: Único trío `[student, table, row]` y `[personal, table, row]`.
 2. **Almacenamiento Desnormalizado por Pestaña (`RowTabData`)**:
-   Sustituye el patrón EAV previo (`CellValue`). Cada fila (`Row`) en una pestaña (`Tab`) almacena sus celdas dentro de un campo `JSONField` denominado `data`, mapeando `column_id -> valor tipado`. Esto reduce drásticamente el volumen de registros en base de datos ($O(\text{Filas} \times \text{Pestañas})$ en lugar de $O(\text{Filas} \times \text{Columnas})$) y aísla la carga de datos por pestaña según los permisos de objeto guardian (`Tab`). La validación y formateo de celdas por tipo de columna se realiza mediante la función utilitaria `validate_and_format_cell_value(column, value)`.
+   Sustituye el patrón EAV previo (tabla legacy `cell_values`, eliminada en la migración `0014_delete_cellvalue` durante la fase Contract). Cada fila (`Row`) en una pestaña (`Tab`) almacena sus celdas dentro de un campo `JSONField` denominado `data`, mapeando `column_id -> valor tipado`. Esto reduce drásticamente el volumen de registros en base de datos ($O(\text{Filas} \times \text{Pestañas})$ en lugar de $O(\text{Filas} \times \text{Columnas})$) y aísla la carga de datos por pestaña según los permisos de objeto guardian (`Tab`). La validación y formateo de celdas por tipo de columna se realiza mediante la función utilitaria `validate_and_format_cell_value(column, value)`.
 
 ---
 
@@ -704,6 +704,7 @@ Mantiene una compatibilidad del 100% con el contrato previo hacia el frontend, p
 - **Método**: `PUT` (Recomendado para la UI) o `POST`
 - **Ruta**: `/api/tables/cell/<table_id>/<column_id>/<row_id>/`
 - **Comportamiento Crítico**: En el método `PUT`, si no existe un registro de valor para la columna en `RowTabData`, **lo crea automáticamente** (upsert en `data[column_id]`).
+- **Destino de la escritura**: `table_id`, `column_id` y `row_id` se resuelven **exclusivamente desde la URL**. Si el body incluye `row_id`/`column_id` distintos, se ignoran; la escritura y la validación de tipo se aplican siempre sobre la columna de la URL. Esto impide redirigir el `PUT` al `RowTabData` de otra tabla/pestaña (IDOR/BOLA) y mantiene el contrato mínimo `{"value": ...}`.
 - **Validación Estricta de Tipos**: El serializador y `validate_and_format_cell_value` validan que el valor sea coherente con el tipo de columna:
   - `text`: Requiere string.
   - `checkbox`: Requiere booleano (`true`/`false`).

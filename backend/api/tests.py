@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.contrib.auth.models import User, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
@@ -1915,5 +1916,144 @@ class RowTabDataCRUDTestCase(APITestCase):
         self.assertEqual(rtd.data.get(str(self.col_select.id)), 'Matutino')
 
 
+class CellUpdateCrossTableIsolationTestCase(APITestCase):
+    """
+    Regresión de H-1 (IDOR/BOLA de escritura en `CellValueViewSet.update`).
 
+    Un `PUT` sobre la celda de la tabla A no debe poder redirigir la escritura
+    a la tabla B mediante `row_id`/`column_id` del payload: la vista debe
+    forzar la fila y la columna de la URL e ignorar las del cuerpo. El usuario
+    solo tiene permisos por objeto sobre A, ninguno sobre B y ningún permiso
+    global de `RowTabData`.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='cell_isolation_user', password='password123')
+
+        # Tabla A (propia) con su pestaña, columna y fila.
+        self.table_a = Table.objects.create(name='Isolation Table A')
+        self.tab_a = Tab.objects.create(
+            table=self.table_a, name='General A', label='General A', order=0)
+        self.col_a = Column.objects.create(
+            tab=self.tab_a, name='Columna A', type='text', order=0)
+        self.row_a = Row.objects.create(
+            table=self.table_a, name='Fila A', order=0)
+
+        # Tabla B (ajena) con su pestaña, columna y fila.
+        self.table_b = Table.objects.create(name='Isolation Table B')
+        self.tab_b = Tab.objects.create(
+            table=self.table_b, name='General B', label='General B', order=0)
+        self.col_b = Column.objects.create(
+            tab=self.tab_b, name='Columna B', type='text', order=0)
+        self.row_b = Row.objects.create(
+            table=self.table_b, name='Fila B', order=0)
+
+        self.rtd_a = RowTabData.objects.create(
+            row=self.row_a, tab=self.tab_a,
+            data={str(self.col_a.id): 'original-A'})
+        self.rtd_b = RowTabData.objects.create(
+            row=self.row_b, tab=self.tab_b,
+            data={str(self.col_b.id): 'original-B'})
+
+        # Solo permisos por objeto sobre A; nada sobre B y sin permisos
+        # globales `*_rowtabdata`.
+        assign_perm('change_table', self.user, self.table_a)
+        assign_perm('change_tab', self.user, self.tab_a)
+
+        self.user = User.objects.get(id=self.user.id)
+        self.client.force_authenticate(user=self.user)
+
+    def _cell_url(self, table, column, row):
+        return f'/api/tables/cell/{table.id}/{column.id}/{row.id}/'
+
+    def test_cell_update_ignores_row_and_column_from_payload(self):
+        """
+        `PUT` en la celda de A con `row_id`/`column_id` de B responde 200/201,
+        escribe solo en A y deja intacta la celda de B (que además es 403 en GET).
+        """
+        url_b = self._cell_url(self.table_b, self.col_b, self.row_b)
+        res_get_b = self.client.get(url_b)
+        self.assertEqual(res_get_b.status_code, status.HTTP_403_FORBIDDEN)
+
+        url_a = self._cell_url(self.table_a, self.col_a, self.row_a)
+        payload = {
+            'value': 'INJECTED',
+            'row_id': str(self.row_b.id),
+            'column_id': str(self.col_b.id),
+        }
+        response = self.client.put(url_a, payload, format='json')
+
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
+        )
+        self.assertEqual(response.data['row_id'], str(self.row_a.id))
+        self.assertEqual(response.data['column_id'], str(self.col_a.id))
+        self.assertEqual(response.data['value'], 'INJECTED')
+
+        self.rtd_a.refresh_from_db()
+        self.rtd_b.refresh_from_db()
+        self.assertEqual(self.rtd_a.data, {str(self.col_a.id): 'INJECTED'})
+        self.assertEqual(self.rtd_b.data, {str(self.col_b.id): 'original-B'})
+
+    def test_cell_update_with_non_dict_payload_returns_400(self):
+        """Un cuerpo JSON que no es un objeto (lista) responde 400, no 500, y no escribe."""
+        url_a = self._cell_url(self.table_a, self.col_a, self.row_a)
+        response = self.client.put(url_a, ['INJECTED'], format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.rtd_a.refresh_from_db()
+        self.rtd_b.refresh_from_db()
+        self.assertEqual(self.rtd_a.data, {str(self.col_a.id): 'original-A'})
+        self.assertEqual(self.rtd_b.data, {str(self.col_b.id): 'original-B'})
+
+    def test_cell_update_upsert_with_foreign_ids_creates_only_in_a(self):
+        """
+        Variante upsert: en una celda de A aún inexistente, el `PUT` con IDs de
+        B debe crear el valor en A (201) y no tocar B.
+        """
+        # Fila nueva en A sin RowTabData para la columna A.
+        row_new_a = Row.objects.create(
+            table=self.table_a, name='Fila Nueva A', order=1)
+
+        url_a = self._cell_url(self.table_a, self.col_a, row_new_a)
+        payload = {
+            'value': 'UPSERT-A',
+            'row_id': str(self.row_b.id),
+            'column_id': str(self.col_b.id),
+        }
+        response = self.client.put(url_a, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['row_id'], str(row_new_a.id))
+        self.assertEqual(response.data['column_id'], str(self.col_a.id))
+
+        rtd_new = RowTabData.objects.get(row=row_new_a, tab=self.tab_a)
+        self.assertEqual(rtd_new.data, {str(self.col_a.id): 'UPSERT-A'})
+
+        self.rtd_b.refresh_from_db()
+        self.assertEqual(self.rtd_b.data, {str(self.col_b.id): 'original-B'})
+        self.assertEqual(
+            RowTabData.objects.filter(row=self.row_b, tab=self.tab_b).count(), 1)
+
+
+class CellValueModelRemovalTestCase(APITestCase):
+    """
+    Guardia de la fase Contract (migración `0014_delete_cellvalue`):
+    el modelo `CellValue` fue retirado y su tabla desaparece del esquema,
+    mientras que `RowTabData` sigue siendo la única fuente de datos de celdas.
+    """
+
+    def test_cell_value_model_not_registered_in_app_registry(self):
+        """`apps.get_model('api', 'CellValue')` lanza LookupError tras eliminar el modelo."""
+        with self.assertRaises(LookupError):
+            apps.get_model('api', 'CellValue')
+
+    def test_cell_values_table_absent_from_database_schema(self):
+        """La tabla `cell_values` no existe en el esquema y `row_tab_data` permanece."""
+        tables = connection.introspection.table_names()
+        self.assertNotIn('cell_values', tables)
+        self.assertIn('row_tab_data', tables)
 
