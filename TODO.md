@@ -66,8 +66,10 @@
     columns:
     c: permiso para crear columns si es compartida, sino si
     r: puede ver todas las columns de el tab compartido, si es compartida, si es suya todos
-    u: permiso para actualizar los nombres, puede actualizar los que creo, si es compartida, si es suya si
-    d: permiso para borrar columnas, puede borrar las que creo, si es compartida, si es suya todos
+    u: permiso para actualizar los nombres, puede actualizar los que el creo, si es compartida, si es suya si
+    d: permiso para borrar columnas, puede borrar las que el creo, si es compartida, si es suya todos
+
+    CellValue
 
     Permisos para el modulo de asistencia:
     solo un mienro con permisos especiales puede administrar los registros y relaciones, no puede modificar las asistencias.

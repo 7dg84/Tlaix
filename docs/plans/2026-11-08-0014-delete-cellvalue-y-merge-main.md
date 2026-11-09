@@ -49,7 +49,7 @@ Cerrar la fase Contract de la migración `CellValue → RowTabData`:
 | 4 | Verificar suite completa sin `CellValue` | `test-writer` | 2 | `manage.py test api asistencia students personal` en verde; sin imports del modelo retirado | Completado |
 | 5 | Aplicar 0014 en Docker local y verificar endpoints | `docker-ops` | 2, 4 | `showmigrations` marca `[X] 0014_delete_cellvalue`; `http://localhost:8000/api/` responde 200; `row_tab_data` conserva datos | Completado |
 | 6 | QA de regresión post-Contract | `qa` | 5 | Reporte breve en `docs/qa/2026-11-08-regresion-0014.md`; sin hallazgos altos | Completado |
-| 7 | Commit de la entrega 0014 en la rama feature | orchestrator | 2-6 | Commit creado en `feature/row-tab-data-migration` | Pendiente |
+| 7 | Commit de la entrega 0014 en la rama feature | orchestrator | 2-6 | Commit creado en `feature/row-tab-data-migration` (`5ddbccb`) | Completado |
 | 8 | Merge `--no-ff` de la rama feature en `main` | orchestrator + `backend` / `frontend` / `docker-ops` según conflicto | 7 | Merge completado; conflictos resueltos por propietario; `git status` limpio | Pendiente |
 | 9 | Verificación post-merge en `main` | `docker-ops` / `qa` | 8 | Tests backend en verde y servicios locales responden 200 | Pendiente |
 | 10 | Actualizar plan, `TODO.md` y documentación | orchestrator | 8, 9 | Estado `completado`; documentación sincronizada | Pendiente |
