@@ -1,8 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Database, Users, Package, FileText, Settings, BarChart3, Trash2 } from "lucide-react";
+import { Database, Users, Package, FileText, Settings, BarChart3, Trash2, Pencil } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateTableDialog } from "@/components/CreateTableDialog";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
+import { InlineRename } from "@/components/InlineRename";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
@@ -17,6 +18,8 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [tables, setTables] = useState<any[]>([]);
   const [tableToDelete, setTableToDelete] = useState<any | null>(null);
+  // Tabla cuyo título se está renombrando en la tarjeta (null = ninguna)
+  const [renamingTableId, setRenamingTableId] = useState<string | null>(null);
 
   // API
   const loadTables = async () => {
@@ -111,6 +114,26 @@ const Index = () => {
     }
   };
 
+  /**
+   * Renombra la tabla desde la tarjeta y actualiza el estado local.
+   * Relanza el error para que `InlineRename` mantenga la edición abierta.
+   */
+  const renameTable = async (table: any, name: string) => {
+    try {
+      await tableService.rename(table.id, name);
+      setTables((prev) =>
+        prev.map((item) => (item.id === table.id ? { ...item, name } : item))
+      );
+      toast.success(`La tabla "${name}" se renombró exitosamente`);
+    } catch (error) {
+      if (!isAuthError(error)) {
+        console.error("Error al renombrar tabla:", error);
+        manageError(error);
+      }
+      throw error;
+    }
+  };
+
   const allTables = [...tables, ...customTables];
 
   return (
@@ -123,27 +146,67 @@ const Index = () => {
           {tables.map((table) => {
             const Icon = table.icon || Database;
             return (
-              <Link key={table.id} to={`/table/${table.id}`}>
+              <Link
+                key={table.id}
+                to={`/table/${table.id}`}
+                onClick={(event) => {
+                  // Mientras se edita el título, el clic fuera del input solo guarda el nombre
+                  if (renamingTableId === table.id) {
+                    event.preventDefault();
+                  }
+                }}
+              >
                 <Card className="group hover:shadow-[var(--shadow-hover)] transition-all duration-300 cursor-pointer border-border/50 hover:border-primary/50 overflow-hidden relative">
                   <div className={`h-2 bg-gradient-to-r ${table.color}`} />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-3 right-3 h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 z-10"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setTableToDelete(table);
-                    }}
-                    title="Eliminar tabla"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRenamingTableId(table.id);
+                      }}
+                      title={`Renombrar tabla ${table.name}`}
+                      aria-label={`Renombrar tabla ${table.name}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setTableToDelete(table);
+                      }}
+                      title="Eliminar tabla"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                   <CardHeader>
                     <div className="flex items-start justify-between">
-                      <div className="flex-1 pr-6">
+                      <div className="flex-1 pr-20">
                         <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                          {table.name}
+                          <InlineRename
+                            value={table.name}
+                            onRename={(name) => renameTable(table, name)}
+                            label={`tabla ${table.name}`}
+                            maxLength={100}
+                            showButton={false}
+                            editing={renamingTableId === table.id}
+                            onEditingChange={(editing) => {
+                              setRenamingTableId((current) => {
+                                if (editing) return table.id;
+                                return current === table.id ? null : current;
+                              });
+                            }}
+                            className="w-full"
+                            inputClassName="h-9 w-full px-2 text-xl text-foreground"
+                          />
                         </CardTitle>
                         <CardDescription className="mt-2">
                           {table.description}

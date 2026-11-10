@@ -5,7 +5,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser, BasePermission, DjangoModelPermissions
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token as AuthToken
-from .models import Table, Column, Row, Tab, CellValue
+from .models import Table, Column, Row, Tab, RowTabData, validate_and_format_cell_value
 from .serializers import (
     UserSerializer, TableSerializer, ColumnSerializer, RowSerializer,
     TabSerializer, CellValueSerializer, TabViewColumnSerializer,
@@ -339,24 +339,49 @@ class TabViewSet(viewsets.ModelViewSet):
 
 
 class CellValueViewSet(viewsets.ModelViewSet):
-    queryset = CellValue.objects.all()
+    queryset = RowTabData.objects.all()
     serializer_class = CellValueSerializer
-    permission_classes = [IsAuthenticated, DjangoModelPermissions]
+    permission_classes = [IsAuthenticated, CompleteDjangoObjectPermissions]
     authentication_classes = [CookieTokenAuthentication, TokenAuthentication]
+
+    def get_queryset(self):
+        """
+        Filtra RowTabData por los permisos del usuario en la tabla si viene table_id.
+        """
+        table_id = self.kwargs.get('table_id')
+        if table_id:
+            table = get_object_or_404(Table, id=table_id)
+            self.check_object_permissions(self.request, table)
+            return RowTabData.objects.filter(tab__table=table)
+        return RowTabData.objects.all()
 
     def list(self, request, *args, **kwargs):
         table_id = self.kwargs.get('table_id')
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validate that related objects exist
-        get_object_or_404(Table, id=table_id)
-        get_object_or_404(Column, id=column_id)
-        get_object_or_404(Row, id=row_id)
+        # Validate that related objects exist and check permissions
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+        column = get_object_or_404(Column, id=column_id, tab__table=table)
+        self.check_object_permissions(request, column.tab)
+        row = get_object_or_404(Row, id=row_id, table=table)
 
-        # Filter by row and column
-        queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
-        serializer = self.get_serializer(queryset, many=True)
+        rtd = RowTabData.objects.filter(row=row, tab=column.tab).first()
+        if rtd and isinstance(rtd.data, dict) and str(column.id) in rtd.data:
+            data = [{
+                'id': f"{rtd.id}:{column.id}",
+                'row_id': str(row.id),
+                'column_id': str(column.id),
+                'row': row,
+                'column': column,
+                'value': rtd.data.get(str(column.id)),
+                'created_at': rtd.created_at,
+                'updated_at': rtd.updated_at,
+            }]
+        else:
+            data = []
+        serializer = self.get_serializer(data, many=True)
         return Response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -364,35 +389,46 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validate that related objects exist
-        get_object_or_404(Table, id=table_id)
-        get_object_or_404(Column, id=column_id)
-        get_object_or_404(Row, id=row_id)
+        # Validate that related objects exist and check permissions
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+        column = get_object_or_404(Column, id=column_id, tab__table=table)
+        self.check_object_permissions(request, column.tab)
+        row = get_object_or_404(Row, id=row_id, table=table)
 
-        # Filter by row and column
-        queryset = get_object_or_404(CellValue.objects.filter(
-            row_id=row_id, column_id=column_id))
-        serializer = self.get_serializer(queryset)
+        rtd = get_object_or_404(RowTabData.objects.filter(row=row, tab=column.tab))
+        if not isinstance(rtd.data, dict) or str(column.id) not in rtd.data:
+            return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
+
+        instance_data = {
+            'id': f"{rtd.id}:{column.id}",
+            'row_id': str(row.id),
+            'column_id': str(column.id),
+            'row': row,
+            'column': column,
+            'value': rtd.data.get(str(column.id)),
+            'created_at': rtd.created_at,
+            'updated_at': rtd.updated_at,
+        }
+        serializer = self.get_serializer(instance_data)
         return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
-        # Get id from request URL
-        table = self.kwargs.get('table_id')
-        column = self.kwargs.get('column_id')
-        row = self.kwargs.get('row_id')
-        print(self.kwargs.get('table_id'), self.kwargs.get(
-            'column_id'), self.kwargs.get('row_id'))
+        table_id = self.kwargs.get('table_id')
+        column_id = self.kwargs.get('column_id')
+        row_id = self.kwargs.get('row_id')
 
-        #  Validate that related objects exist
-        get_object_or_404(Table, id=table)
-        get_object_or_404(Column, id=column)
-        get_object_or_404(Row, id=row)
+        # Validate that related objects exist and check permissions
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+        column = get_object_or_404(Column, id=column_id, tab__table=table)
+        self.check_object_permissions(request, column.tab)
+        row = get_object_or_404(Row, id=row_id, table=table)
 
-        # Create a mutable copy of request data and add the related IDs
         data = request.data.copy()
-        data['table_id'] = table
-        data['column_id'] = column
-        data['row_id'] = row
+        data['table_id'] = table_id
+        data['column_id'] = column_id
+        data['row_id'] = row_id
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -404,29 +440,46 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validate that related objects exist
-        get_object_or_404(Table, id=table_id)
-        get_object_or_404(Column, id=column_id)
-        get_object_or_404(Row, id=row_id)
+        # Validate that related objects exist and check permissions
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+        column = get_object_or_404(Column, id=column_id, tab__table=table)
+        self.check_object_permissions(request, column.tab)
+        row = get_object_or_404(Row, id=row_id, table=table)
 
-        # Filter by row and column
-        queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
-        if not queryset.exists():
-            # return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
-            # Create the cell value instead
-            # Create a mutable copy of request data and add the related IDs
-            data = request.data.copy()
-            data['table_id'] = table_id
-            data['column_id'] = column_id
+        rtd = RowTabData.objects.filter(row=row, tab=column.tab).first()
+        is_existing = rtd is not None and isinstance(rtd.data, dict) and str(column.id) in rtd.data
+
+        # La fila y la columna de destino siempre provienen de la URL. Se
+        # sobrescriben en el payload para ignorar cualquier `row_id`/`column_id`
+        # enviado por el cliente y evitar escribir en el RowTabData de otra
+        # tabla/pestaña sin validar sus permisos (IDOR/BOLA).
+        data = request.data.copy()
+        if isinstance(data, dict):
             data['row_id'] = row_id
+            data['column_id'] = column_id
+
+        if not is_existing:
+            if isinstance(data, dict):
+                data['table_id'] = table_id
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-        instance = queryset.first()
+
+        instance_data = {
+            'id': f"{rtd.id}:{column.id}",
+            'row_id': str(row.id),
+            'column_id': str(column.id),
+            'row': row,
+            'column': column,
+            'value': rtd.data.get(str(column.id)),
+            'created_at': rtd.created_at,
+            'updated_at': rtd.updated_at,
+        }
         serializer = self.get_serializer(
-            instance, data=request.data, partial=True)
+            instance_data, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data)
@@ -436,17 +489,19 @@ class CellValueViewSet(viewsets.ModelViewSet):
         column_id = self.kwargs.get('column_id')
         row_id = self.kwargs.get('row_id')
 
-        # Validate that related objects exist
-        get_object_or_404(Table, id=table_id)
-        get_object_or_404(Column, id=column_id)
-        get_object_or_404(Row, id=row_id)
+        # Validate that related objects exist and check permissions
+        table = get_object_or_404(Table, id=table_id)
+        self.check_object_permissions(request, table)
+        column = get_object_or_404(Column, id=column_id, tab__table=table)
+        self.check_object_permissions(request, column.tab)
+        row = get_object_or_404(Row, id=row_id, table=table)
 
-        # Filter by row and column
-        queryset = CellValue.objects.filter(row_id=row_id, column_id=column_id)
-        if not queryset.exists():
+        rtd = RowTabData.objects.filter(row=row, tab=column.tab).first()
+        if not rtd or not isinstance(rtd.data, dict) or str(column.id) not in rtd.data:
             return Response({'error': 'CellValue not found for the given row and column'}, status=status.HTTP_404_NOT_FOUND)
-        instance = queryset.first()
-        self.perform_destroy(instance)
+
+        del rtd.data[str(column.id)]
+        rtd.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -602,22 +657,22 @@ class TabView(APIView):
         col_ids = [c['id'] for c in columns]
         row_ids = [r['id'] for r in rows]
 
-        # Usamos select_related('column') para evitar consultas N+1 en get_value()
-        cells = CellValue.objects.filter(
-            row_id__in=row_ids,
-            column_id__in=col_ids
-        ).select_related('column')
-
-        # Crear un diccionario de búsqueda rápida en memoria: (row_id, column_id) -> value
-        cells_lookup = {
-            (cell.row_id, cell.column_id): cell.get_value()
-            for cell in cells
+        # Consultar RowTabData indexado por (tab, row_id)
+        row_tab_records = RowTabData.objects.filter(
+            tab=tab,
+            row_id__in=row_ids
+        )
+        row_data_map = {
+            str(rtd.row_id): rtd.data
+            for rtd in row_tab_records
+            if isinstance(rtd.data, dict)
         }
 
         # Integrar los valores directamente en el diccionario de cada fila
         for r in rows:
+            row_dict = row_data_map.get(str(r['id']), {})
             r['cells'] = {
-                c['id']: cells_lookup.get((r['id'], c['id']), None)
+                c['id']: row_dict.get(c['id'], None)
                 for c in columns
             }
 
@@ -795,14 +850,24 @@ class TableBulkUploadView(APIView):
                         # Si se proporcionó data para las celdas, mapear columnas existentes
                         if row_data and isinstance(row_data, dict):
                             col_ids = list(row_data.keys())
-                            columns = Column.objects.filter(id__in=col_ids, tab__table=table)
-                            cols_map = {str(c.id): c for c in columns}
-                            for col_id, val in row_data.items():
-                                col = cols_map.get(str(col_id))
-                                if col:
-                                    cell, _ = CellValue.objects.get_or_create(row=new_row, column=col)
-                                    cell.set_value(val)
-                                    cell.save()
+                            columns = Column.objects.filter(id__in=col_ids, tab__table=table).select_related('tab')
+                            tab_updates = {}
+                            for col in columns:
+                                col_id_str = str(col.id)
+                                if col_id_str in row_data:
+                                    val = row_data[col_id_str]
+                                    try:
+                                        formatted_val = validate_and_format_cell_value(col, val)
+                                    except ValueError:
+                                        formatted_val = val
+                                    tab_updates.setdefault(col.tab, {})[col_id_str] = formatted_val
+
+                            for t, updates in tab_updates.items():
+                                rtd, _ = RowTabData.objects.get_or_create(row=new_row, tab=t)
+                                if rtd.data is None:
+                                    rtd.data = {}
+                                rtd.data.update(updates)
+                                rtd.save()
 
                         created_rows.append(new_row)
 
@@ -873,14 +938,9 @@ class RowCellValuesView(APIView):
         # Orden determinista: `order` puede empatar y sin desempate Postgres
         # no garantiza el mismo orden entre peticiones.
         columns = list(tab.columns.order_by('order', 'id'))
-        column_ids = [str(column.id) for column in columns]
 
-        # Una sola consulta de celdas + select_related('column') para que
-        # get_value() no dispare consultas por celda.
-        cells = CellValue.objects.filter(
-            row=row, column_id__in=column_ids
-        ).select_related('column')
-        values = {str(cell.column_id): cell.get_value() for cell in cells}
+        rtd = RowTabData.objects.filter(row=row, tab=tab).first()
+        rtd_data = rtd.data if rtd and isinstance(rtd.data, dict) else {}
 
         items = [{
             'column_id': str(column.id),
@@ -889,7 +949,7 @@ class RowCellValuesView(APIView):
             'options': column.options,
             'order': column.order,
             'is_required': column.is_required,
-            'value': values.get(str(column.id)),
+            'value': rtd_data.get(str(column.id)),
         } for column in columns]
 
         return Response({
@@ -924,16 +984,12 @@ class ColumnCellValuesView(APIView):
         # Mismo orden determinista que TabView: order -> created_at -> id.
         rows = list(table.rows.order_by('order', 'created_at', 'id'))
 
-        # Una sola consulta de celdas: filtrar por `row__table` evita
-        # materializar los ids de las filas. No hace falta `select_related`
-        # porque `get_value()` solo usa `column`, que ya está en memoria.
-        cells = CellValue.objects.filter(column=column, row__table=table)
-        # Asignar la columna a cada celda evita que get_value() consulte
-        # `cell.column` una vez por fila (N+1).
+        tab_records = RowTabData.objects.filter(tab=column.tab, row__table=table)
+        col_id_str = str(column.id)
         values = {}
-        for cell in cells:
-            cell.column = column
-            values[str(cell.row_id)] = cell.get_value()
+        for rtd in tab_records:
+            if isinstance(rtd.data, dict) and col_id_str in rtd.data:
+                values[str(rtd.row_id)] = rtd.data[col_id_str]
 
         items = [{
             'row_id': str(row.id),

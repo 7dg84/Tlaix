@@ -20,6 +20,10 @@ export const columnService = {
   update: (tableId: string, columnId: string, data: Partial<Column>) =>
     apiClient.put<Column>(`/tables/${tableId}/columns/${columnId}/`, data).then(res => res.data),
 
+  // PATCH parcial: solo cambia el nombre de la columna
+  rename: (tableId: string, columnId: string, name: string) =>
+    apiClient.patch<Column>(`/tables/${tableId}/columns/${columnId}/`, { name }).then(res => res.data),
+
   delete: (tableId: string, columnId: string) =>
     apiClient.delete(`/tables/${tableId}/columns/${columnId}/`).then(res => res.data),
 };

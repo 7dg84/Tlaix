@@ -60,7 +60,7 @@ d:\Documents\Proyectos\Tlaix\
 │   │   ├── urls.py             # Enrutador principal (/admin/, /api/, /students/, /personal/)
 │   │   └── wsgi.py
 │   ├── api/                    # Aplicación de Tablas Dinámicas y Auth
-│   │   ├── models.py           # Table, Tab, Column, Row, CellValue
+│   │   ├── models.py           # Table, Tab, Column, Row, RowTabData
 │   │   ├── serializers.py      # Serializadores DRF
 │   │   ├── views.py            # ViewSets y vistas API
 │   │   ├── urls.py             # Rutas /api/
@@ -95,7 +95,7 @@ d:\Documents\Proyectos\Tlaix\
 
 ## 3. Modelo de Datos y Entidades (ER)
 
-El núcleo del sistema utiliza una base de datos relacional PostgreSQL con una arquitectura de datos dinámicos basada en entidad-atributo-valor (EAV) optimizada por tipos:
+El núcleo del sistema utiliza una base de datos relacional PostgreSQL con una arquitectura de datos dinámicos optimizada por tipos, donde las celdas se persisten en un `JSONField` por fila y pestaña (`RowTabData`) en lugar del patrón EAV anterior:
 
 ```mermaid
 erDiagram
@@ -103,8 +103,8 @@ erDiagram
     Table ||--|{ Tab : "tiene (CASCADE)"
     Tab ||--|{ Column : "define (CASCADE)"
     Table ||--|{ Row : "contiene (CASCADE)"
-    Row ||--|{ CellValue : "intersección (CASCADE)"
-    Column ||--|{ CellValue : "intersección (CASCADE)"
+    Row ||--|{ RowTabData : "almacena (CASCADE)"
+    Tab ||--|{ RowTabData : "contexto (CASCADE)"
     
     Student ||--o{ Relation : "relaciona"
     Table ||--o{ Relation : "grupo/tabla"
@@ -150,16 +150,11 @@ erDiagram
         timestamp updated_at
     }
 
-    CellValue {
+    RowTabData {
         string id PK "UUID"
         string row_id FK "Row"
-        string column_id FK "Column"
-        text value_text "nullable"
-        int value_int "nullable"
-        float value_float "nullable"
-        boolean value_bool "default False"
-        json value_json "nullable"
-        date value_date "nullable"
+        string tab_id FK "Tab"
+        jsonb data "Mapeo column_id -> valor"
         timestamp created_at
         timestamp updated_at
     }
@@ -206,10 +201,10 @@ erDiagram
    - `Table.name`: Único globalmente.
    - `Tab`: Único par `[table, name]`.
    - `Column`: Único par `[tab, name]`.
-   - `CellValue`: Único par `[row, column]` (garantiza una sola celda por intersección).
+   - `RowTabData`: Único par `[row, tab]` (un solo registro de datos por fila y pestaña).
    - `Relation`: Único trío `[student, table, row]` y `[personal, table, row]`.
-2. **Normalización de Celdas (`CellValue`)**:
-   Los valores se persisten en campos tipados (`value_text`, `value_int`, `value_float`, `value_bool`, `value_json`, `value_date`). El modelo y el serializador manejan de manera polimórfica la lectura y escritura mediante los métodos `.get_value()` y `.set_value()`.
+2. **Almacenamiento Desnormalizado por Pestaña (`RowTabData`)**:
+   Sustituye el patrón EAV previo (tabla legacy `cell_values`, eliminada en la migración `0014_delete_cellvalue` durante la fase Contract). Cada fila (`Row`) en una pestaña (`Tab`) almacena sus celdas dentro de un campo `JSONField` denominado `data`, mapeando `column_id -> valor tipado`. Esto reduce drásticamente el volumen de registros en base de datos ($O(\text{Filas} \times \text{Pestañas})$ en lugar de $O(\text{Filas} \times \text{Columnas})$) y aísla la carga de datos por pestaña según los permisos de objeto guardian (`Tab`). La validación y formateo de celdas por tipo de columna se realiza mediante la función utilitaria `validate_and_format_cell_value(column, value)`.
 
 ---
 
@@ -384,7 +379,7 @@ erDiagram
   - Permiso sobre la tabla: `change_table`, `add_table` o `view_table` (o superusuario).
   - Si incluye `tabs`: Permiso global `api.add_tab` (o superusuario).
   - Si incluye `rows`: Permiso global `api.add_row` (o superusuario).
-- **Descripción**: Permite subir múltiples pestañas y/o filas en una sola transacción atómica (`transaction.atomic()`). Asigna automáticamente al usuario los permisos de objeto guardian (`add_tab`, `change_tab`, `delete_tab`, `view_tab`) sobre cada pestaña creada. Calcula de forma incremental el orden de visualización de pestañas y filas si no se especifica. Admite elementos tanto en formato simplificado (cadena con nombre) como en formato objeto detallado. Si las filas incluyen diccionario `data`, genera o actualiza los `CellValue` correspondientes a las columnas de la tabla.
+- **Descripción**: Permite subir múltiples pestañas y/o filas en una sola transacción atómica (`transaction.atomic()`). Asigna automáticamente al usuario los permisos de objeto guardian (`add_tab`, `change_tab`, `delete_tab`, `view_tab`) sobre cada pestaña creada. Calcula de forma incremental el orden de visualización de pestañas y filas si no se especifica. Admite elementos tanto en formato simplificado (cadena con nombre) como en formato objeto detallado. Si las filas incluyen diccionario `data`, genera o actualiza los registros en `RowTabData` correspondientes a las columnas de la tabla.
 - **Body Esperado (JSON)**:
   ```json
   {
@@ -504,8 +499,10 @@ erDiagram
 - **Rutas**:
   - `GET /api/tables/<table_id>/tabs/<pk>/` (200 OK)
   - `PUT /api/tables/<table_id>/tabs/<pk>/` (200 OK)
+  - `PATCH /api/tables/<table_id>/tabs/<pk>/` (200 OK)
   - `DELETE /api/tables/<table_id>/tabs/<pk>/` (204 No Content)
 - **Permisos**: Requiere permisos granulares a nivel de objeto `view_tab`, `change_tab` y `delete_tab` correspondientemente.
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `label` y `order`. El renombrado inline del frontend envía `{"name": "...", "label": "..."}`. Un nombre duplicado dentro de la misma tabla devuelve `400 Bad Request` (`unique_together` de `table` + `name`).
 
 ---
 
@@ -562,7 +559,9 @@ erDiagram
 #### 3. Detalle, Edición y Eliminación
 - `GET /api/tables/<table_id>/columns/<pk>/`
 - `PUT /api/tables/<table_id>/columns/<pk>/`
+- `PATCH /api/tables/<table_id>/columns/<pk>/`
 - `DELETE /api/tables/<table_id>/columns/<pk>/`
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `type`, `options`, `order`, `is_required` y `tab_id`. Un nombre duplicado dentro de la misma pestaña devuelve `400 Bad Request` (`unique_together` de `tab` + `name`).
 
 #### 4. Valores Completos de una Columna (modo revisión, 2026-10-23)
 - **Método**: `GET`
@@ -635,14 +634,16 @@ erDiagram
     }
   }
   ```
-- **Comportamiento**: Crea la fila y, si se proporcionan columnas en `data`, crea/actualiza los registros en `CellValue`.
+- **Comportamiento**: Crea la fila y, si se proporcionan columnas en `data`, crea/actualiza los registros en `RowTabData` (agrupados por pestaña).
 - **`order` automático (desde 2026-10-19)**: si el cliente **omite** `order`, el backend asigna `(max order de la tabla) + 1` (o `0` si la tabla no tiene filas). Antes todas las filas creadas por la UI quedaban en `order=0` y empataban entre sí. Si el cliente envía `order` explícito, se respeta tal cual; la carga masiva (`TableBulkUploadView`) no cambia su comportamiento.
 - **Respuesta (201 Created)**: Objeto fila (incluye el `order` efectivamente asignado).
 
 #### 3. Detalle, Modificación y Eliminación
 - `GET /api/tables/<table_id>/rows/<pk>/`
 - `PUT /api/tables/<table_id>/rows/<pk>/`
+- `PATCH /api/tables/<table_id>/rows/<pk>/`
 - `DELETE /api/tables/<table_id>/rows/<pk>/`
+- **Actualización parcial (`PATCH`, desde 2026-11-05)**: acepta cualquier subconjunto de `name`, `order` y `data`. El renombrado inline del frontend envía solo `{"name": "..."}`. `data` sigue siendo opcional en `PATCH` (en `PUT` el serializador lo exige), y si se envía, crea o actualiza las celdas correspondientes.
 
 #### 4. Valores Completos de una Fila (modo revisión, 2026-10-23)
 - **Método**: `GET`
@@ -676,11 +677,13 @@ erDiagram
 
 ---
 
-### 4.6 Módulo de Celdas Normalizadas
+### 4.6 Módulo de Celdas (Persistencia en RowTabData)
 
 **Ruta:** `/api/tables/cell/<table_id>/<column_id>/<row_id>/`  
 **Controlador:** `api.views.CellValueViewSet`  
-**Seguridad:** `[IsAuthenticated, DjangoModelPermissions]`
+**Seguridad:** `[IsAuthenticated, CompleteDjangoObjectPermissions]` (con cookie `auth_token` o `Token`). Valida permisos guardian por objeto tanto sobre la tabla (`view_table` en lectura, `add_table`/`change_table`/`delete_table` en escritura) como sobre la pestaña (`view_tab` en lectura, `add_tab`/`change_tab`/`delete_tab` en escritura), mitigando vulnerabilidades IDOR/BOLA.
+
+Mantiene una compatibilidad del 100% con el contrato previo hacia el frontend, pero opera internamente sobre el modelo desnormalizado `RowTabData` (almacenando en `data[str(column.id)]`).
 
 #### 1. Obtener Valor de Celda
 - **Método**: `GET`
@@ -700,12 +703,13 @@ erDiagram
 #### 2. Crear o Actualizar Celda (Upsert en PUT)
 - **Método**: `PUT` (Recomendado para la UI) o `POST`
 - **Ruta**: `/api/tables/cell/<table_id>/<column_id>/<row_id>/`
-- **Comportamiento Crítico**: En el método `PUT`, si el registro `CellValue` no existe aún en la base de datos, **lo crea automáticamente** (upsert).
-- **Validación Estricta de Tipos**: El serializador valida que el valor sea coherente con la columna:
+- **Comportamiento Crítico**: En el método `PUT`, si no existe un registro de valor para la columna en `RowTabData`, **lo crea automáticamente** (upsert en `data[column_id]`).
+- **Destino de la escritura**: `table_id`, `column_id` y `row_id` se resuelven **exclusivamente desde la URL**. Si el body incluye `row_id`/`column_id` distintos, se ignoran; la escritura y la validación de tipo se aplican siempre sobre la columna de la URL. Esto impide redirigir el `PUT` al `RowTabData` de otra tabla/pestaña (IDOR/BOLA) y mantiene el contrato mínimo `{"value": ...}`.
+- **Validación Estricta de Tipos**: El serializador y `validate_and_format_cell_value` validan que el valor sea coherente con el tipo de columna:
   - `text`: Requiere string.
   - `checkbox`: Requiere booleano (`true`/`false`).
   - `int`/`float`: Requiere valor numérico.
-  - `select`: Requiere string, lista o diccionario.
+  - `select`: Requiere string, lista o diccionario. Si la columna define una lista de opciones permitidas (`options`), el valor debe pertenecer estrictamente a dicha lista.
   - `date`: Requiere formato ISO `YYYY-MM-DD`. De lo contrario lanza `400 Bad Request`.
 - **Body Esperado**:
   ```json
@@ -718,6 +722,7 @@ erDiagram
 #### 3. Eliminar Valor de Celda
 - **Método**: `DELETE`
 - **Ruta**: `/api/tables/cell/<table_id>/<column_id>/<row_id>/`
+- **Comportamiento**: Elimina la clave `column_id` del diccionario `data` en `RowTabData`.
 - **Respuesta (204 No Content)**.
 
 ---
@@ -858,7 +863,7 @@ Es el endpoint principal utilizado por el frontend para renderizar la cuadrícul
   2. Busca el estudiante y su relación con la tabla de su grupo.
   3. Obtiene o crea la pestaña `Asistencia` en dicha tabla.
   4. Obtiene o crea la columna con nombre de la fecha actual en formato ISO (`YYYY-MM-DD`, tipo: `checkbox`).
-  5. Asigna `CellValue` con `value_bool = True` para la fila de ese estudiante en dicha columna.
+  5. Registra la asistencia en `RowTabData` con valor booleano `True` para la fila de ese estudiante en dicha columna (`data[column_id] = True`).
 - **Body Esperado**:
   ```json
   {
@@ -1034,10 +1039,10 @@ location /static/ { proxy_pass http://django:8000/static/; }
 1. **Control de Acceso IDOR (Insecure Direct Object Reference)**:
    - Verificar que un usuario autenticado A **no pueda** consultar ni editar una tabla creada por el usuario B si no se le ha otorgado permiso explícito (`view_table` / `change_table`).
    - El sistema debe responder con `404 Not Found` en lugar de `403 Forbidden` en endpoints de detalle para evitar enumeración de identificadores.
-2. **Validación de Tipos en Celdas (`CellValue`)**:
+2. **Validación de Tipos en Celdas (`RowTabData`)**:
    - Enviar un string a una celda de tipo `int`: Debe responder `400 Bad Request`.
    - Enviar formato de fecha inválido (ej. `"2026/13/45"` o `"ayer"`): Debe responder `400 Bad Request`.
-   - Enviar booleano a una columna de tipo `checkbox`: Debe responder `200/201` y persistirse en `value_bool`.
+   - Enviar booleano a una columna de tipo `checkbox`: Debe responder `200/201` y persistirse como booleano en `data[column_id]`.
 3. **Flujo de Asistencia de Estudiantes y Personal**:
    - Probar `POST /students/check/` con un número de control no registrado: Debe retornar `404 Not Found`.
    - Probar `POST /students/check/` con número válido: Verificar que en la base de datos se cree la columna con la fecha de hoy en la pestaña `Asistencia` y el valor sea `True`.

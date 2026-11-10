@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 
 from students.models import Student
-from api.models import Table, Row, Column, CellValue, Tab
+from api.models import Table, Row, Column, RowTabData, Tab
 
 # Create your views here.
 
@@ -117,11 +117,16 @@ def check(request):
         tab=tab, name=today_str, type='checkbox')
 
     # Check the cell value of the student for today, if not exists, create it with value true, if exists and is false, update it to true
-    cell_value, created = CellValue.objects.get_or_create(
-        row=relation.row, column=column, defaults={'value_bool': True})
+    rtd, _ = RowTabData.objects.get_or_create(
+        row=relation.row,
+        tab=tab,
+        defaults={'data': {str(column.id): True}}
+    )
 
-    if not created and not cell_value.value_bool:
-        cell_value.value_bool = True
-        cell_value.save()
+    if rtd.data is None:
+        rtd.data = {}
+    if not rtd.data.get(str(column.id)):
+        rtd.data[str(column.id)] = True
+        rtd.save()
 
     return Response({'message': 'Check successful'}, status=200)

@@ -140,6 +140,7 @@ es por código + rebuild.
 |---|---|---|---|
 | 2026-10-27 | `index-DYKgNdbn.js` | `index-Dg5gTxlT.css` | Rebuild inicial + política de caché |
 | 2026-10-27 | `index-DdSnc6b_.js` | `index-Dg5gTxlT.css` | Fix: guard del `Select` abierto |
+| 2026-11-04 | `index-C-DScxTJ.js` | `index-Bxuix4H4.css` | Renombrado inline (ver `2026-11-04-frontend-rebuild-renombrado-inline.md`) |
 
 En ambos casos `frontend/nginx.conf` ya estaba configurado: solo se ejecutó
 `docker compose build react` + `docker compose up -d --force-recreate react`. Cabeceras verificadas

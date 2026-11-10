@@ -1,6 +1,6 @@
 # Documentación de Tlaix
 
-Este directorio concentra la documentación de trabajo generada por los agentes de OpenCode. La documentación canónica del sistema sigue siendo `SYSTEM_API_SPECIFICATION.md` en la raíz del repositorio.
+Este directorio concentra la documentación de trabajo generada por los agentes. La documentación canónica del sistema sigue siendo `SYSTEM_API_SPECIFICATION.md` en la raíz del repositorio.
 
 ## Estructura
 
